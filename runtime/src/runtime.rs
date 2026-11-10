@@ -320,8 +320,9 @@ impl Store {
         let inst = Instance { types: m.types.clone(), funcs, tables, memories, globals, elems, datas, exports };
         self.instances.push(Rc::new(inst));
         let inst = self.instances[inst_index as usize].clone();
-        if let Some(jit) = self.jit.as_mut() {
-            jit.compile_instance(inst_index);
+        if let Some(mut jit) = self.jit.take() {
+            jit.compile_instance(self, inst_index);
+            self.jit = Some(jit);
         }
         // Element and data segments, in order; a failure traps but keeps earlier effects.
         let mut dropped_elems = Vec::new();
@@ -602,66 +603,89 @@ impl Store {
                 }
                 Op::Unreachable => return Err(Trap::new("unreachable")),
                 Op::MemorySize { dst } => stack[base + *dst as usize] = self.memories[mem_addr.unwrap() as usize].pages() as u64,
+                Op::MemoryGrow { .. }
+                | Op::MemoryInit { .. }
+                | Op::DataDrop { .. }
+                | Op::MemoryCopy { .. }
+                | Op::MemoryFill { .. }
+                | Op::RefFunc { .. }
+                | Op::TableGet { .. }
+                | Op::TableSet { .. }
+                | Op::TableSize { .. }
+                | Op::TableGrow { .. }
+                | Op::TableFill { .. }
+                | Op::TableCopy { .. }
+                | Op::TableInit { .. }
+                | Op::ElemDrop { .. } => self.exec_misc(&mut inst, op, &mut stack[base..])?,
+                Op::RefNull { dst } => stack[base + *dst as usize] = 0,
+                Op::RefIsNull { a } => {
+                    let s = base + *a as usize;
+                    stack[s] = (stack[s] == 0) as u64;
+                }
+            }
+        }
+    }
+
+
+    /// Memory, table and segment instructions shared by the interpreter and the JIT; `s` is the
+    /// frame (slot 0 = the function's first local).
+    pub fn exec_misc(&mut self, inst: &mut Rc<Instance>, op: &Op, s: &mut [u64]) -> Result<(), Trap> {
+        match op {
                 Op::MemoryGrow { a } => {
-                    let slot = base + *a as usize;
-                    let r = self.memories[mem_addr.unwrap() as usize].grow(stack[slot] as u32);
-                    stack[slot] = r as u32 as u64;
+                    let k = *a as usize;
+                    let r = self.memories[inst.memories[0] as usize].grow(s[k] as u32);
+                    s[k] = r as u32 as u64;
                 }
                 Op::MemoryInit { data, a } => {
-                    let s = base + *a as usize;
-                    let (d, src, n) = (stack[s] as u32 as usize, stack[s + 1] as u32 as usize, stack[s + 2] as u32 as usize);
+                    let k = *a as usize;
+                    let (d, src, n) = (s[k] as u32 as usize, s[k + 1] as u32 as usize, s[k + 2] as u32 as usize);
                     let seg = inst.datas[*data as usize].clone();
-                    let mem = &mut self.memories[mem_addr.unwrap() as usize].data;
+                    let mem = &mut self.memories[inst.memories[0] as usize].data;
                     if src + n > seg.len() || d + n > mem.len() {
                         return Err(Trap::new("out of bounds memory access"));
                     }
                     mem[d..d + n].copy_from_slice(&seg[src..src + n]);
                 }
-                Op::DataDrop { data } => self.drop_segment(&mut inst, true, *data),
+                Op::DataDrop { data } => self.drop_segment(inst, true, *data),
                 Op::MemoryCopy { a } => {
-                    let s = base + *a as usize;
-                    let (d, src, n) = (stack[s] as u32 as usize, stack[s + 1] as u32 as usize, stack[s + 2] as u32 as usize);
-                    let mem = &mut self.memories[mem_addr.unwrap() as usize].data;
+                    let k = *a as usize;
+                    let (d, src, n) = (s[k] as u32 as usize, s[k + 1] as u32 as usize, s[k + 2] as u32 as usize);
+                    let mem = &mut self.memories[inst.memories[0] as usize].data;
                     if src + n > mem.len() || d + n > mem.len() {
                         return Err(Trap::new("out of bounds memory access"));
                     }
                     mem.copy_within(src..src + n, d);
                 }
                 Op::MemoryFill { a } => {
-                    let s = base + *a as usize;
-                    let (d, v, n) = (stack[s] as u32 as usize, stack[s + 1] as u8, stack[s + 2] as u32 as usize);
-                    let mem = &mut self.memories[mem_addr.unwrap() as usize].data;
+                    let k = *a as usize;
+                    let (d, v, n) = (s[k] as u32 as usize, s[k + 1] as u8, s[k + 2] as u32 as usize);
+                    let mem = &mut self.memories[inst.memories[0] as usize].data;
                     if d + n > mem.len() {
                         return Err(Trap::new("out of bounds memory access"));
                     }
                     mem[d..d + n].fill(v);
                 }
-                Op::RefNull { dst } => stack[base + *dst as usize] = 0,
-                Op::RefIsNull { a } => {
-                    let s = base + *a as usize;
-                    stack[s] = (stack[s] == 0) as u64;
-                }
-                Op::RefFunc { dst, func } => stack[base + *dst as usize] = inst.funcs[*func as usize] as u64 + 1,
+                Op::RefFunc { dst, func } => s[*dst as usize] = inst.funcs[*func as usize] as u64 + 1,
                 Op::TableGet { table, a } => {
-                    let s = base + *a as usize;
+                    let k = *a as usize;
                     let t = &self.tables[inst.tables[*table as usize] as usize];
-                    stack[s] = *t.elems.get(stack[s] as u32 as usize).ok_or_else(|| Trap::new("out of bounds table access"))?;
+                    s[k] = *t.elems.get(s[k] as u32 as usize).ok_or_else(|| Trap::new("out of bounds table access"))?;
                 }
                 Op::TableSet { table, a } => {
-                    let s = base + *a as usize;
+                    let k = *a as usize;
                     let t = &mut self.tables[inst.tables[*table as usize] as usize];
-                    let i = stack[s] as u32 as usize;
-                    *t.elems.get_mut(i).ok_or_else(|| Trap::new("out of bounds table access"))? = stack[s + 1];
+                    let i = s[k] as u32 as usize;
+                    *t.elems.get_mut(i).ok_or_else(|| Trap::new("out of bounds table access"))? = s[k + 1];
                 }
-                Op::TableSize { table, dst } => stack[base + *dst as usize] = self.tables[inst.tables[*table as usize] as usize].elems.len() as u64,
+                Op::TableSize { table, dst } => s[*dst as usize] = self.tables[inst.tables[*table as usize] as usize].elems.len() as u64,
                 Op::TableGrow { table, a } => {
-                    let s = base + *a as usize;
-                    let (init, delta) = (stack[s], stack[s + 1] as u32);
+                    let k = *a as usize;
+                    let (init, delta) = (s[k], s[k + 1] as u32);
                     let t = &mut self.tables[inst.tables[*table as usize] as usize];
                     let old = t.elems.len() as u64;
                     let new = old + delta as u64;
                     let cap = t.ty.limits.max.map_or(u32::MAX as u64, |m| m as u64).min(10_000_000);
-                    stack[s] = if new > cap {
+                    s[k] = if new > cap {
                         u32::MAX as u64
                     } else {
                         t.elems.resize(new as usize, init);
@@ -669,8 +693,8 @@ impl Store {
                     };
                 }
                 Op::TableFill { table, a } => {
-                    let s = base + *a as usize;
-                    let (i, v, n) = (stack[s] as u32 as usize, stack[s + 1], stack[s + 2] as u32 as usize);
+                    let k = *a as usize;
+                    let (i, v, n) = (s[k] as u32 as usize, s[k + 1], s[k + 2] as u32 as usize);
                     let t = &mut self.tables[inst.tables[*table as usize] as usize];
                     if i + n > t.elems.len() {
                         return Err(Trap::new("out of bounds table access"));
@@ -678,8 +702,8 @@ impl Store {
                     t.elems[i..i + n].fill(v);
                 }
                 Op::TableCopy { dst_table, src_table, a } => {
-                    let s = base + *a as usize;
-                    let (d, sr, n) = (stack[s] as u32 as usize, stack[s + 1] as u32 as usize, stack[s + 2] as u32 as usize);
+                    let k = *a as usize;
+                    let (d, sr, n) = (s[k] as u32 as usize, s[k + 1] as u32 as usize, s[k + 2] as u32 as usize);
                     let (dt, st) = (inst.tables[*dst_table as usize] as usize, inst.tables[*src_table as usize] as usize);
                     if sr + n > self.tables[st].elems.len() || d + n > self.tables[dt].elems.len() {
                         return Err(Trap::new("out of bounds table access"));
@@ -688,8 +712,8 @@ impl Store {
                     self.tables[dt].elems[d..d + n].copy_from_slice(&tmp);
                 }
                 Op::TableInit { table, elem, a } => {
-                    let s = base + *a as usize;
-                    let (d, sr, n) = (stack[s] as u32 as usize, stack[s + 1] as u32 as usize, stack[s + 2] as u32 as usize);
+                    let k = *a as usize;
+                    let (d, sr, n) = (s[k] as u32 as usize, s[k + 1] as u32 as usize, s[k + 2] as u32 as usize);
                     let seg = inst.elems[*elem as usize].clone();
                     let t = &mut self.tables[inst.tables[*table as usize] as usize];
                     if sr + n > seg.len() || d + n > t.elems.len() {
@@ -697,9 +721,10 @@ impl Store {
                     }
                     t.elems[d..d + n].copy_from_slice(&seg[sr..sr + n]);
                 }
-                Op::ElemDrop { elem } => self.drop_segment(&mut inst, false, *elem),
-            }
+                Op::ElemDrop { elem } => self.drop_segment(inst, false, *elem),
+            _ => unreachable!(),
         }
+        Ok(())
     }
 
     /// data.drop / elem.drop: the instance gets a fresh copy with the segment emptied.

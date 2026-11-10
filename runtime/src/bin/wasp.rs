@@ -6,6 +6,13 @@
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // Deep recursion in compiled code uses the native stack: run on a thread with a large one
+    // (the call-depth limit, not the stack size, is what stops runaway recursion).
+    let t = std::thread::Builder::new().stack_size(1 << 30).spawn(real_main).unwrap();
+    t.join().unwrap_or(ExitCode::from(101))
+}
+
+fn real_main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("wast") => {
