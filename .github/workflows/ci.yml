@@ -27,10 +27,16 @@ jobs:
       - name: Spec tests, interpreter and JIT
         shell: bash
         run: |
+          # Failures are reported as annotations, which are readable without signing in.
           for mode in "" --jit; do
-            out=$(runtime/target/release/wasp wast -v $mode data/testsuite/*.wast)
-            echo "$out" | grep -v " 0 failed" | head -60
-            echo "$out" | tail -1 | grep -q " 0 failed (100.00%)"
+            out=$(runtime/target/release/wasp wast -v $mode data/testsuite/*.wast 2>&1) || true
+            bad=$(echo "$out" | grep -v " 0 failed" || true)
+            if [ -n "$bad" ] || ! echo "$out" | tail -1 | grep -q " 0 failed (100.00%)"; then
+              echo "$bad" | head -40 | while IFS= read -r l; do echo "::error::mode${mode:-interp} $l"; done
+              echo "$out" | tail -3
+              exit 1
+            fi
+            echo "$out" | tail -1
           done
       - name: Isolation
         run: |
