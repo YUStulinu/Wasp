@@ -144,7 +144,17 @@ impl Memory {
         if new > cap {
             return -1;
         }
-        self.data.resize(new as usize * PAGE, 0);
+        // A fresh zeroed allocation (pages are committed lazily) instead of writing zeros over
+        // the whole new size; an allocation failure is a failed grow, not a crash.
+        let len = new as usize * PAGE;
+        let mut v: Vec<u8> = Vec::new();
+        if v.try_reserve_exact(len).is_err() {
+            return -1;
+        }
+        drop(v);
+        let mut fresh = vec![0u8; len];
+        fresh[..self.data.len()].copy_from_slice(&self.data);
+        self.data = fresh;
         self.sync();
         old as i32
     }

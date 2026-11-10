@@ -28,8 +28,8 @@ jobs:
         shell: bash
         run: |
           for mode in "" --jit; do
-            out=$(runtime/target/release/wasp wast $mode data/testsuite/*.wast)
-            echo "$out" | awk '$4 != 0'
+            out=$(runtime/target/release/wasp wast -v $mode data/testsuite/*.wast)
+            echo "$out" | grep -v " 0 failed" | head -60
             echo "$out" | tail -1 | grep -q " 0 failed (100.00%)"
           done
       - name: Isolation
