@@ -1013,6 +1013,22 @@ pub fn store(mem: &mut [u8], op: u8, ea: u64, v: u64) -> Result<(), Trap> {
 
 // ---------------------------------------------------------------- numerics
 
+// Rounding a signalling NaN must give a quiet one; some C libraries return it unchanged.
+fn quiet32(x: f32) -> f32 {
+    if x.is_nan() {
+        f32::from_bits(x.to_bits() | 0x0040_0000)
+    } else {
+        x
+    }
+}
+fn quiet64(x: f64) -> f64 {
+    if x.is_nan() {
+        f64::from_bits(x.to_bits() | 0x0008_0000_0000_0000)
+    } else {
+        x
+    }
+}
+
 fn f32_min(a: f32, b: f32) -> f32 {
     if a.is_nan() || b.is_nan() {
         return f32::from_bits(0x7fc0_0000);
@@ -1180,10 +1196,10 @@ pub fn num(op: u16, s: &mut [u64], a: usize) -> Result<(), Trap> {
         0x8a => x.rotate_right((y & 63) as u32),
         0x8b => (i32a & 0x7fff_ffff) as u64,
         0x8c => (i32a ^ 0x8000_0000) as u64,
-        0x8d => f32r(f32a.ceil()),
-        0x8e => f32r(f32a.floor()),
-        0x8f => f32r(f32a.trunc()),
-        0x90 => f32r(f32a.round_ties_even()),
+        0x8d => f32r(quiet32(f32a.ceil())),
+        0x8e => f32r(quiet32(f32a.floor())),
+        0x8f => f32r(quiet32(f32a.trunc())),
+        0x90 => f32r(quiet32(f32a.round_ties_even())),
         0x91 => f32r(f32a.sqrt()),
         0x92 => f32r(f32a + f32b),
         0x93 => f32r(f32a - f32b),
@@ -1194,10 +1210,10 @@ pub fn num(op: u16, s: &mut [u64], a: usize) -> Result<(), Trap> {
         0x98 => ((i32a & 0x7fff_ffff) | (i32b & 0x8000_0000)) as u64,
         0x99 => x & 0x7fff_ffff_ffff_ffff,
         0x9a => x ^ 0x8000_0000_0000_0000,
-        0x9b => f64r(f64a.ceil()),
-        0x9c => f64r(f64a.floor()),
-        0x9d => f64r(f64a.trunc()),
-        0x9e => f64r(f64a.round_ties_even()),
+        0x9b => f64r(quiet64(f64a.ceil())),
+        0x9c => f64r(quiet64(f64a.floor())),
+        0x9d => f64r(quiet64(f64a.trunc())),
+        0x9e => f64r(quiet64(f64a.round_ties_even())),
         0x9f => f64r(f64a.sqrt()),
         0xa0 => f64r(f64a + f64b),
         0xa1 => f64r(f64a - f64b),
