@@ -438,6 +438,76 @@ unsafe extern "sysv64" fn h_fminmax(op: u64, a: u64, b: u64) -> u64 {
 
 // ---------------------------------------------------------------- code generation
 
+/// A value whose store into its slot has been deferred: a copy of a local or a constant.
+#[derive(Clone, Copy, PartialEq)]
+enum Pend {
+    Local(u32),
+    Imm(u64),
+}
+
+/// Deferred slot writes. `local.get` and constants emit nothing; the instruction that consumes
+/// the value reads the local (or takes the constant) directly. Pending values are written out
+/// before anything that may read slots in another way: branches, labels, calls, helpers, and
+/// before the aliased local is overwritten.
+#[derive(Default)]
+struct Lazy {
+    p: Vec<(u32, Pend)>,
+}
+
+impl Lazy {
+    fn emit(a: &mut Asm, slot: u32, v: Pend) {
+        match v {
+            Pend::Local(l) => {
+                a.load(true, RAX, l);
+                a.store(true, RAX, slot);
+            }
+            Pend::Imm(bits) if bits <= i32::MAX as u64 => {
+                a.mem(None, true, &[0xc7], 0, RBX, 8 * slot as i32); // mov qword [slot], imm32
+                a.i32(bits as i32);
+            }
+            Pend::Imm(bits) => {
+                a.mov_imm64(RAX, bits);
+                a.store(true, RAX, slot);
+            }
+        }
+    }
+    fn set(&mut self, slot: u32, v: Pend) {
+        self.kill(slot);
+        self.p.push((slot, v));
+    }
+    /// The slot is about to be overwritten (or is dead): forget its pending value.
+    fn kill(&mut self, slot: u32) {
+        self.p.retain(|&(s, _)| s != slot);
+    }
+    fn flush_all(&mut self, a: &mut Asm) {
+        for (s, v) in std::mem::take(&mut self.p) {
+            Self::emit(a, s, v);
+        }
+    }
+    /// Writes out pending copies of `local` before it changes.
+    fn flush_local(&mut self, a: &mut Asm, local: u32) {
+        let (hit, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.p).into_iter().partition(|&(_, v)| v == Pend::Local(local));
+        self.p = keep;
+        for (s, v) in hit {
+            Self::emit(a, s, v);
+        }
+    }
+    /// The slot to read the value of `slot` from: the aliased local, or the slot itself (a
+    /// pending constant is written out first).
+    fn resolve(&mut self, a: &mut Asm, slot: u32) -> u32 {
+        match self.p.iter().find(|&&(s, _)| s == slot).map(|&(_, v)| v) {
+            Some(Pend::Local(l)) => l,
+            Some(v @ Pend::Imm(_)) => {
+                self.kill(slot);
+                Self::emit(a, slot, v);
+                slot
+            }
+            None => slot,
+        }
+    }
+}
+
+
 struct Labels {
     base: usize,
     epilogue: usize,
@@ -493,8 +563,102 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
     }
     reload_mem(a);
 
+    // Instructions that are branch targets: pending writes must be flushed before them.
+    let mut is_target = vec![false; ops.len() + 1];
+    for op in ops.iter() {
+        match op {
+            Op::Br { target, .. } | Op::BrIf { target, .. } | Op::JumpIfZero { target, .. } | Op::Jump(target) => is_target[*target as usize] = true,
+            Op::BrTable { targets, .. } => targets.iter().for_each(|&(t, _)| is_target[t as usize] = true),
+            _ => {}
+        }
+    }
+    let mut lazy = Lazy::default();
+    let mut skip = vec![false; ops.len()];
+
     for (i, op) in ops.iter().enumerate() {
+        if is_target[i] {
+            lazy.flush_all(a);
+        }
         a.bind(l.pc(i as u32));
+        if skip[i] {
+            continue; // a local.set folded into the instruction before it
+        }
+        // Instructions that work with deferred operands.
+        let mut cond_slot = None;
+        match op {
+            Op::LocalGet { dst, local } => {
+                lazy.set(*dst, Pend::Local(*local));
+                continue;
+            }
+            Op::Const { dst, bits } => {
+                lazy.set(*dst, Pend::Imm(*bits));
+                continue;
+            }
+            Op::LocalSet { local, src } | Op::LocalTee { local, src } => {
+                let r = lazy.resolve(a, *src);
+                if r != *local {
+                    lazy.flush_local(a, *local);
+                    a.load(true, RAX, r);
+                    a.store(true, RAX, *local);
+                }
+                if matches!(op, Op::LocalSet { .. }) {
+                    lazy.kill(*src);
+                }
+                continue;
+            }
+            Op::Num { op: nop, a: s } if !num_via_helper(*nop) => {
+                let binary = crate::validate::num_sig(*nop).is_some_and(|(ins, _)| ins.len() == 2);
+                let x = lazy.resolve(a, *s);
+                let y = if binary { lazy.resolve(a, *s + 1) } else { *s + 1 };
+                lazy.kill(*s);
+                lazy.kill(*s + 1);
+                let dst = fused_set(ops, &is_target, i, *s, &mut skip, &mut lazy, a);
+                num_op(a, *nop, dst, x, y, &l);
+                continue;
+            }
+            Op::Load { op: lop, a: s, offset } => {
+                let x = lazy.resolve(a, *s);
+                lazy.kill(*s);
+                let dst = fused_set(ops, &is_target, i, *s, &mut skip, &mut lazy, a);
+                address(a, x, *offset, load_size(*lop), l.traps[T_OOB]);
+                emit_load(a, *lop);
+                a.store(true, RCX, dst);
+                continue;
+            }
+            Op::Store { op: sop, a: s, offset } => {
+                let x = lazy.resolve(a, *s);
+                let y = lazy.resolve(a, *s + 1);
+                lazy.kill(*s);
+                lazy.kill(*s + 1);
+                address(a, x, *offset, store_size(*sop), l.traps[T_OOB]);
+                a.load(true, RCX, y);
+                emit_store(a, *sop);
+                continue;
+            }
+            Op::GlobalGet { dst, global } => {
+                lazy.kill(*dst);
+                let g = &*store.globals[inst.globals[*global as usize] as usize].value as *const u64 as u64;
+                a.mov_imm64(RCX, g);
+                a.mem(None, true, &[0x8b], RAX, RCX, 0);
+                a.store(true, RAX, *dst);
+                continue;
+            }
+            Op::GlobalSet { global, src } => {
+                let r = lazy.resolve(a, *src);
+                lazy.kill(*src);
+                let g = &*store.globals[inst.globals[*global as usize] as usize].value as *const u64 as u64;
+                a.mov_imm64(RCX, g);
+                a.load(true, RAX, r);
+                a.mem(None, true, &[0x89], RAX, RCX, 0);
+                continue;
+            }
+            Op::BrIf { cond, .. } | Op::JumpIfZero { cond, .. } => {
+                cond_slot = Some(lazy.resolve(a, *cond));
+                lazy.kill(*cond);
+                lazy.flush_all(a);
+            }
+            _ => lazy.flush_all(a),
+        }
         match op {
             Op::Unreachable => a.jmp(l.traps[T_UNREACHABLE]),
             Op::LoopCheck => {
@@ -507,7 +671,7 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                 a.jmp(l.pc(*target));
             }
             Op::BrIf { cond, target, src, dst, n } => {
-                a.load(false, RAX, *cond);
+                a.load(false, RAX, cond_slot.unwrap_or(*cond));
                 a.test_eax();
                 if *n == 0 || src == dst {
                     a.jcc(CC_NE, l.pc(*target));
@@ -557,7 +721,7 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
             }
             Op::Jump(t) => a.jmp(l.pc(*t)),
             Op::JumpIfZero { cond, target } => {
-                a.load(false, RAX, *cond);
+                a.load(false, RAX, cond_slot.unwrap_or(*cond));
                 a.test_eax();
                 a.jcc(CC_E, l.pc(*target));
             }
@@ -597,6 +761,9 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                 a.jcc(CC_NE, l.epilogue);
                 reload_mem(a);
             }
+            Op::LocalGet { .. } | Op::LocalSet { .. } | Op::LocalTee { .. } | Op::GlobalGet { .. } | Op::GlobalSet { .. } | Op::Const { .. } => {
+                unreachable!()
+            }
             Op::Select { a: s } => {
                 a.load(false, RAX, s + 2);
                 a.test_eax();
@@ -606,60 +773,7 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                 a.store(true, RAX, *s);
                 a.bind(done);
             }
-            Op::LocalGet { dst, local } => {
-                a.load(true, RAX, *local);
-                a.store(true, RAX, *dst);
-            }
-            Op::LocalSet { local, src } | Op::LocalTee { local, src } => {
-                a.load(true, RAX, *src);
-                a.store(true, RAX, *local);
-            }
-            Op::GlobalGet { dst, global } => {
-                let g = &*store.globals[inst.globals[*global as usize] as usize].value as *const u64 as u64;
-                a.mov_imm64(RCX, g);
-                a.mem(None, true, &[0x8b], RAX, RCX, 0);
-                a.store(true, RAX, *dst);
-            }
-            Op::GlobalSet { global, src } => {
-                let g = &*store.globals[inst.globals[*global as usize] as usize].value as *const u64 as u64;
-                a.mov_imm64(RCX, g);
-                a.load(true, RAX, *src);
-                a.mem(None, true, &[0x89], RAX, RCX, 0);
-            }
-            Op::Const { dst, bits } => {
-                if *bits <= i32::MAX as u64 {
-                    a.mem(None, true, &[0xc7], 0, RBX, 8 * *dst as i32); // mov qword [slot], imm32
-                    a.i32(*bits as i32);
-                } else {
-                    a.mov_imm64(RAX, *bits);
-                    a.store(true, RAX, *dst);
-                }
-            }
-            Op::Load { op, a: s, offset } => {
-                address(a, *s, *offset, load_size(*op), l.traps[T_OOB]);
-                match op {
-                    0x28 | 0x2a | 0x35 => a.idx(None, false, &[0x8b], RCX, R14, RAX),
-                    0x29 | 0x2b => a.idx(None, true, &[0x8b], RCX, R14, RAX),
-                    0x2c => a.idx(None, false, &[0x0f, 0xbe], RCX, R14, RAX),
-                    0x2d | 0x31 => a.idx(None, false, &[0x0f, 0xb6], RCX, R14, RAX),
-                    0x2e => a.idx(None, false, &[0x0f, 0xbf], RCX, R14, RAX),
-                    0x2f | 0x33 => a.idx(None, false, &[0x0f, 0xb7], RCX, R14, RAX),
-                    0x30 => a.idx(None, true, &[0x0f, 0xbe], RCX, R14, RAX),
-                    0x32 => a.idx(None, true, &[0x0f, 0xbf], RCX, R14, RAX),
-                    _ => a.idx(None, true, &[0x63], RCX, R14, RAX), // i64.load32_s: movsxd
-                }
-                a.store(true, RCX, *s);
-            }
-            Op::Store { op, a: s, offset } => {
-                address(a, *s, *offset, store_size(*op), l.traps[T_OOB]);
-                a.load(true, RCX, s + 1);
-                match op {
-                    0x37 | 0x39 => a.idx(None, true, &[0x89], RCX, R14, RAX),
-                    0x36 | 0x38 | 0x3e => a.idx(None, false, &[0x89], RCX, R14, RAX),
-                    0x3b | 0x3d => a.idx(Some(0x66), false, &[0x89], RCX, R14, RAX),
-                    _ => a.idx(None, false, &[0x88], RCX, R14, RAX), // byte
-                }
-            }
+            Op::Load { .. } | Op::Store { .. } => unreachable!(),
             Op::MemorySize { dst } => {
                 a.mov_rr(RAX, R13);
                 a.b(&[0x48, 0xc1, 0xe8, 16]); // shr rax, 16
@@ -679,7 +793,7 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                 a.mov_imm64(RAX, inst.funcs[*func as usize] as u64 + 1);
                 a.store(true, RAX, *dst);
             }
-            Op::Num { op, a: s } => num_op(a, *op, *s, &l),
+            Op::Num { op, a: s } => num_op(a, *op, *s, *s, *s + 1, &l),
             Op::MemoryGrow { .. }
             | Op::MemoryInit { .. }
             | Op::DataDrop { .. }
@@ -713,6 +827,45 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
     a.bind(l.epilogue);
     a.mem(None, true, &[0xff], 1, R15, CTX_DEPTH); // dec qword [r15 + depth]
     a.b(&[0x41, 0x5f, 0x41, 0x5e, 0x41, 0x5d, 0x41, 0x5c, 0x5b, 0xc3]); // pop r15..r12, rbx; ret
+}
+
+/// If instruction i (writing slot s) is followed by `local.set` of that slot, the result can go
+/// straight to the local: returns the destination slot and marks the local.set as done.
+fn fused_set(ops: &[Op], is_target: &[bool], i: usize, s: u32, skip: &mut [bool], lazy: &mut Lazy, a: &mut Asm) -> u32 {
+    if let Some(Op::LocalSet { local, src }) = ops.get(i + 1)
+        && *src == s
+        && !is_target[i + 1]
+    {
+        lazy.flush_local(a, *local);
+        skip[i + 1] = true;
+        return *local;
+    }
+    s
+}
+
+/// rcx = load from [r14 + rax] for a load opcode.
+fn emit_load(a: &mut Asm, op: u8) {
+    match op {
+        0x28 | 0x2a | 0x35 => a.idx(None, false, &[0x8b], RCX, R14, RAX),
+        0x29 | 0x2b => a.idx(None, true, &[0x8b], RCX, R14, RAX),
+        0x2c => a.idx(None, false, &[0x0f, 0xbe], RCX, R14, RAX),
+        0x2d | 0x31 => a.idx(None, false, &[0x0f, 0xb6], RCX, R14, RAX),
+        0x2e => a.idx(None, false, &[0x0f, 0xbf], RCX, R14, RAX),
+        0x2f | 0x33 => a.idx(None, false, &[0x0f, 0xb7], RCX, R14, RAX),
+        0x30 => a.idx(None, true, &[0x0f, 0xbe], RCX, R14, RAX),
+        0x32 => a.idx(None, true, &[0x0f, 0xbf], RCX, R14, RAX),
+        _ => a.idx(None, true, &[0x63], RCX, R14, RAX), // i64.load32_s: movsxd
+    }
+}
+
+/// [r14 + rax] = rcx for a store opcode.
+fn emit_store(a: &mut Asm, op: u8) {
+    match op {
+        0x37 | 0x39 => a.idx(None, true, &[0x89], RCX, R14, RAX),
+        0x36 | 0x38 | 0x3e => a.idx(None, false, &[0x89], RCX, R14, RAX),
+        0x3b | 0x3d => a.idx(Some(0x66), false, &[0x89], RCX, R14, RAX),
+        _ => a.idx(None, false, &[0x88], RCX, R14, RAX), // byte
+    }
 }
 
 fn copy(a: &mut Asm, src: u32, dst: u32, n: u32) {
@@ -770,37 +923,43 @@ fn num_helper(a: &mut Asm, op: u16, s: u32, l: &Labels) {
     a.jcc(CC_NE, l.epilogue);
 }
 
+/// Numeric instructions implemented by calling the interpreter's code (operands must be in
+/// their own slots).
+fn num_via_helper(op: u16) -> bool {
+    matches!(op, 0xa8..=0xab | 0xae..=0xb1 | 0xb5 | 0xba | 0xfc00..=0xfc07)
+}
+
 fn store_xmm0(a: &mut Asm, double: bool, slot: u32) {
     // movd/movq rax, xmm0; mov [slot], rax (f32 values are kept zero-extended)
     a.rr(Some(0x66), double, &[0x0f, 0x7e], 0, RAX);
     a.store(true, RAX, slot);
 }
 
-fn num_op(a: &mut Asm, op: u16, s: u32, l: &Labels) {
+/// Numeric instruction with operands in slots x (and y), result in slot dst.
+fn num_op(a: &mut Asm, op: u16, dst: u32, x: u32, y: u32, l: &Labels) {
     let w = matches!(op, 0x50..=0x5a | 0x79..=0x8a | 0xc2..=0xc4);
-    let t = s + 1;
     match op {
         // ---- integer comparisons
         0x45 | 0x50 => {
-            a.load(w, RAX, s);
+            a.load(w, RAX, x);
             a.rr(None, w, &[0x85], RAX, RAX);
             a.setcc_to_eax(CC_E);
-            a.store(true, RAX, s);
+            a.store(true, RAX, dst);
         }
         0x46..=0x4f | 0x51..=0x5a => {
             let k = if op >= 0x51 { op - 0x51 } else { op - 0x46 };
             let cc = [CC_E, CC_NE, CC_L, CC_B, CC_G, CC_A, CC_LE, CC_BE, CC_GE, CC_AE][k as usize];
-            a.load(w, RAX, s);
-            a.mem(None, w, &[0x3b], RAX, RBX, 8 * t as i32);
+            a.load(w, RAX, x);
+            a.mem(None, w, &[0x3b], RAX, RBX, 8 * y as i32);
             a.setcc_to_eax(cc);
-            a.store(true, RAX, s);
+            a.store(true, RAX, dst);
         }
         // ---- clz / ctz / popcnt
         0x67..=0x69 | 0x79..=0x7b => {
             let k = if op >= 0x79 { op - 0x79 } else { op - 0x67 };
             let opc = [0xbd, 0xbc, 0xb8][k as usize];
-            a.mem(Some(0xf3), w, &[0x0f, opc], RAX, RBX, 8 * s as i32);
-            a.store(true, RAX, s);
+            a.mem(Some(0xf3), w, &[0x0f, opc], RAX, RBX, 8 * x as i32);
+            a.store(true, RAX, dst);
         }
         // ---- add sub mul and or xor
         0x6a | 0x6b | 0x6c | 0x71 | 0x72 | 0x73 | 0x7c | 0x7d | 0x7e | 0x83 | 0x84 | 0x85 => {
@@ -814,15 +973,15 @@ fn num_op(a: &mut Asm, op: u16, s: u32, l: &Labels) {
                 0x72 => &[0x0b],
                 _ => &[0x33],
             };
-            a.load(w, RAX, s);
-            a.mem(None, w, opc, RAX, RBX, 8 * t as i32);
-            a.store(true, RAX, s);
+            a.load(w, RAX, x);
+            a.mem(None, w, opc, RAX, RBX, 8 * y as i32);
+            a.store(true, RAX, dst);
         }
         // ---- division and remainder
         0x6d..=0x70 | 0x7f..=0x82 => {
             let k = if w { op - 0x7f } else { op - 0x6d }; // 0 div_s, 1 div_u, 2 rem_s, 3 rem_u
-            a.load(w, RAX, s);
-            a.load(w, RCX, t);
+            a.load(w, RAX, x);
+            a.load(w, RCX, y);
             a.rr(None, w, &[0x85], RCX, RCX);
             a.jcc(CC_E, l.traps[T_DIV0]);
             let done = a.label();
@@ -857,37 +1016,37 @@ fn num_op(a: &mut Asm, op: u16, s: u32, l: &Labels) {
             if !w {
                 a.rr(None, false, &[0x89], result, result); // zero-extend
             }
-            a.store(true, result, s);
+            a.store(true, result, dst);
         }
         // ---- shifts and rotates
         0x74..=0x78 | 0x86..=0x8a => {
             let k = if w { op - 0x86 } else { op - 0x74 };
             let ext = [4, 7, 5, 0, 1][k as usize]; // shl sar shr rol ror
-            a.load(w, RAX, s);
-            a.load(false, RCX, t);
+            a.load(w, RAX, x);
+            a.load(false, RCX, y);
             a.rr(None, w, &[0xd3], ext, RAX);
-            a.store(true, RAX, s);
+            a.store(true, RAX, dst);
         }
         // ---- float arithmetic
         0x92..=0x95 | 0xa0..=0xa3 => {
             let d = op >= 0xa0;
             let p = if d { 0xf2 } else { 0xf3 };
             let opc = [0x58, 0x5c, 0x59, 0x5e][(op - if d { 0xa0 } else { 0x92 }) as usize];
-            a.mem(Some(p), false, &[0x0f, 0x10], 0, RBX, 8 * s as i32);
-            a.mem(Some(p), false, &[0x0f, opc], 0, RBX, 8 * t as i32);
-            store_xmm0(a, d, s);
+            a.mem(Some(p), false, &[0x0f, 0x10], 0, RBX, 8 * x as i32);
+            a.mem(Some(p), false, &[0x0f, opc], 0, RBX, 8 * y as i32);
+            store_xmm0(a, d, dst);
         }
         0x91 | 0x9f => {
             let d = op == 0x9f;
-            a.mem(Some(if d { 0xf2 } else { 0xf3 }), false, &[0x0f, 0x51], 0, RBX, 8 * s as i32);
-            store_xmm0(a, d, s);
+            a.mem(Some(if d { 0xf2 } else { 0xf3 }), false, &[0x0f, 0x51], 0, RBX, 8 * x as i32);
+            store_xmm0(a, d, dst);
         }
         0x8d..=0x90 | 0x9b..=0x9e => {
             let d = op >= 0x9b;
             let mode = [2u8, 1, 3, 0][(op - if d { 0x9b } else { 0x8d }) as usize] | 8; // ceil floor trunc nearest
-            a.mem(Some(0x66), false, &[0x0f, 0x3a, if d { 0x0b } else { 0x0a }], 0, RBX, 8 * s as i32);
+            a.mem(Some(0x66), false, &[0x0f, 0x3a, if d { 0x0b } else { 0x0a }], 0, RBX, 8 * x as i32);
             a.code.push(mode);
-            store_xmm0(a, d, s);
+            store_xmm0(a, d, dst);
         }
         // ---- float comparisons (unordered operands compare false, except ne)
         0x5b..=0x66 => {
@@ -895,8 +1054,8 @@ fn num_op(a: &mut Asm, op: u16, s: u32, l: &Labels) {
             let k = op - if d { 0x61 } else { 0x5b }; // eq ne lt gt le ge
             let p = if d { Some(0x66) } else { None };
             let ld = if d { 0xf2 } else { 0xf3 };
-            a.mem(Some(ld), false, &[0x0f, 0x10], 0, RBX, 8 * s as i32);
-            a.mem(Some(ld), false, &[0x0f, 0x10], 1, RBX, 8 * t as i32);
+            a.mem(Some(ld), false, &[0x0f, 0x10], 0, RBX, 8 * x as i32);
+            a.mem(Some(ld), false, &[0x0f, 0x10], 1, RBX, 8 * y as i32);
             match k {
                 0 => {
                     a.rr(p, false, &[0x0f, 0x2e], 0, 1);
@@ -915,25 +1074,25 @@ fn num_op(a: &mut Asm, op: u16, s: u32, l: &Labels) {
                     a.setcc_to_eax(if k == 3 { CC_A } else { CC_AE });
                 }
             }
-            a.store(true, RAX, s);
+            a.store(true, RAX, dst);
         }
         // ---- sign operations on the bits
         0x8b | 0x8c | 0x98 => {
-            a.load(false, RAX, s);
+            a.load(false, RAX, x);
             match op {
                 0x8b => a.b(&[0x25, 0xff, 0xff, 0xff, 0x7f]), // and eax, 0x7fffffff
                 0x8c => a.b(&[0x35, 0x00, 0x00, 0x00, 0x80]), // xor eax, 0x80000000
                 _ => {
-                    a.load(false, RCX, t);
+                    a.load(false, RCX, y);
                     a.b(&[0x25, 0xff, 0xff, 0xff, 0x7f]);
                     a.b(&[0x81, 0xe1, 0x00, 0x00, 0x00, 0x80]); // and ecx, 0x80000000
                     a.b(&[0x09, 0xc8]); // or eax, ecx
                 }
             }
-            a.store(true, RAX, s);
+            a.store(true, RAX, dst);
         }
         0x99 | 0x9a | 0xa6 => {
-            a.load(true, RAX, s);
+            a.load(true, RAX, x);
             a.mov_imm64(RDX, 0x7fff_ffff_ffff_ffff);
             match op {
                 0x99 => a.rr(None, true, &[0x21], RDX, RAX), // and rax, rdx
@@ -942,60 +1101,68 @@ fn num_op(a: &mut Asm, op: u16, s: u32, l: &Labels) {
                     a.rr(None, true, &[0x31], RDX, RAX); // xor rax, rdx
                 }
                 _ => {
-                    a.load(true, RCX, t);
+                    a.load(true, RCX, y);
                     a.rr(None, true, &[0x21], RDX, RAX);
                     a.b(&[0x48, 0xf7, 0xd2]);
                     a.rr(None, true, &[0x21], RDX, RCX); // and rcx, sign mask
                     a.rr(None, true, &[0x09], RCX, RAX); // or rax, rcx
                 }
             }
-            a.store(true, RAX, s);
+            a.store(true, RAX, dst);
         }
         0x96 | 0x97 | 0xa4 | 0xa5 => {
             a.mov_imm64(RDI, op as u64);
-            a.load(true, RSI, s);
-            a.load(true, RDX, t);
+            a.load(true, RSI, x);
+            a.load(true, RDX, y);
             a.call_abs(h_fminmax as *const () as usize as u64);
-            a.store(true, RAX, s);
+            a.store(true, RAX, dst);
         }
         // ---- conversions
         0xa7 | 0xad | 0xbc | 0xbe => {
-            a.load(false, RAX, s); // low 32 bits, zero-extended
-            a.store(true, RAX, s);
+            a.load(false, RAX, x); // low 32 bits, zero-extended
+            a.store(true, RAX, dst);
         }
         0xac => {
-            a.mem(None, true, &[0x63], RAX, RBX, 8 * s as i32); // movsxd rax, dword [s]
-            a.store(true, RAX, s);
+            a.mem(None, true, &[0x63], RAX, RBX, 8 * x as i32); // movsxd rax, dword [s]
+            a.store(true, RAX, dst);
         }
-        0xbd | 0xbf => {}
+        0xbd | 0xbf => {
+            if x != dst {
+                a.load(true, RAX, x);
+                a.store(true, RAX, dst);
+            }
+        }
         0xc0 | 0xc1 => {
-            a.mem(None, false, &[0x0f, if op == 0xc0 { 0xbe } else { 0xbf }], RAX, RBX, 8 * s as i32);
-            a.store(true, RAX, s);
+            a.mem(None, false, &[0x0f, if op == 0xc0 { 0xbe } else { 0xbf }], RAX, RBX, 8 * x as i32);
+            a.store(true, RAX, dst);
         }
         0xc2 | 0xc3 => {
-            a.mem(None, true, &[0x0f, if op == 0xc2 { 0xbe } else { 0xbf }], RAX, RBX, 8 * s as i32);
-            a.store(true, RAX, s);
+            a.mem(None, true, &[0x0f, if op == 0xc2 { 0xbe } else { 0xbf }], RAX, RBX, 8 * x as i32);
+            a.store(true, RAX, dst);
         }
         0xc4 => {
-            a.mem(None, true, &[0x63], RAX, RBX, 8 * s as i32);
-            a.store(true, RAX, s);
+            a.mem(None, true, &[0x63], RAX, RBX, 8 * x as i32);
+            a.store(true, RAX, dst);
         }
         0xb2 | 0xb3 | 0xb4 | 0xb7 | 0xb8 | 0xb9 => {
             let d = op >= 0xb7;
             let unsigned32 = op == 0xb3 || op == 0xb8;
             let src64 = unsigned32 || op == 0xb4 || op == 0xb9;
-            a.load(op == 0xb4 || op == 0xb9, RAX, s); // 32-bit loads zero-extend
+            a.load(op == 0xb4 || op == 0xb9, RAX, x); // 32-bit loads zero-extend
             a.rr(Some(if d { 0xf2 } else { 0xf3 }), src64, &[0x0f, 0x2a], 0, RAX); // cvtsi2ss/sd xmm0, eax/rax
-            store_xmm0(a, d, s);
+            store_xmm0(a, d, dst);
         }
         0xb6 | 0xbb => {
             let to_d = op == 0xbb;
             let p = if to_d { 0xf3 } else { 0xf2 };
-            a.mem(Some(p), false, &[0x0f, 0x10], 0, RBX, 8 * s as i32);
+            a.mem(Some(p), false, &[0x0f, 0x10], 0, RBX, 8 * x as i32);
             a.rr(Some(p), false, &[0x0f, 0x5a], 0, 0); // cvtss2sd / cvtsd2ss xmm0, xmm0
-            store_xmm0(a, to_d, s);
+            store_xmm0(a, to_d, dst);
         }
         // Trapping and saturating truncation, unsigned 64-bit conversions: the interpreter's code.
-        _ => num_helper(a, op, s, l),
+        _ => {
+            debug_assert!(x == dst);
+            num_helper(a, op, dst, l)
+        }
     }
 }

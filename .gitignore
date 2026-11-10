@@ -1,3 +1,6 @@
 runtime/target/
 data/
 *.log
+bench/build/
+examples/*.wasm
+examples/rust-hello/target/
