@@ -118,8 +118,15 @@ const R15: u8 = 15;
 
 #[derive(Clone, Copy)]
 enum Fix {
-    Rel32 { at: usize, label: usize },
-    Table { at: usize, label: usize, base: usize },
+    Rel32 {
+        at: usize,
+        label: usize,
+    },
+    Table {
+        at: usize,
+        label: usize,
+        base: usize,
+    },
 }
 
 struct Asm {
@@ -130,7 +137,11 @@ struct Asm {
 
 impl Asm {
     fn new() -> Self {
-        Asm { code: Vec::with_capacity(1 << 16), labels: vec![], fixes: vec![] }
+        Asm {
+            code: Vec::with_capacity(1 << 16),
+            labels: vec![],
+            fixes: vec![],
+        }
     }
     fn label(&mut self) -> usize {
         self.labels.push(None);
@@ -146,7 +157,11 @@ impl Asm {
         self.code.extend_from_slice(&v.to_le_bytes());
     }
     fn rex(&mut self, w: bool, reg: u8, index: u8, base: u8) {
-        let r = 0x40 | (w as u8) << 3 | ((reg >> 3) & 1) << 2 | ((index >> 3) & 1) << 1 | ((base >> 3) & 1);
+        let r = 0x40
+            | (w as u8) << 3
+            | ((reg >> 3) & 1) << 2
+            | ((index >> 3) & 1) << 1
+            | ((base >> 3) & 1);
         if r != 0x40 {
             self.code.push(r);
         }
@@ -205,12 +220,18 @@ impl Asm {
     }
     fn jmp(&mut self, label: usize) {
         self.code.push(0xe9);
-        self.fixes.push(Fix::Rel32 { at: self.code.len(), label });
+        self.fixes.push(Fix::Rel32 {
+            at: self.code.len(),
+            label,
+        });
         self.i32(0);
     }
     fn jcc(&mut self, cc: u8, label: usize) {
         self.b(&[0x0f, 0x80 + cc]);
-        self.fixes.push(Fix::Rel32 { at: self.code.len(), label });
+        self.fixes.push(Fix::Rel32 {
+            at: self.code.len(),
+            label,
+        });
         self.i32(0);
     }
     fn call_abs(&mut self, f: u64) {
@@ -264,10 +285,10 @@ impl Drop for Region {
 }
 
 pub struct JitState {
-    entries: Vec<u64>,       // code address of each store function (0 = not compiled / host)
-    regions: Vec<Region>,    // executable memory, one region per instance
+    entries: Vec<u64>, // code address of each store function (0 = not compiled / host)
+    regions: Vec<Region>, // executable memory, one region per instance
     tables: Vec<Box<[u64]>>, // per instance: code address of each of its functions
-    frame: Vec<u64>,         // the value stack shared by all calls
+    frame: Vec<u64>,   // the value stack shared by all calls
     pub code_bytes: usize,
     pub compile_seconds: f64,
 }
@@ -280,7 +301,14 @@ impl Default for JitState {
 
 impl JitState {
     pub fn new() -> Self {
-        JitState { entries: vec![], regions: vec![], tables: vec![], frame: vec![], code_bytes: 0, compile_seconds: 0.0 }
+        JitState {
+            entries: vec![],
+            regions: vec![],
+            tables: vec![],
+            frame: vec![],
+            code_bytes: 0,
+            compile_seconds: 0.0,
+        }
     }
 
     /// Compiles every function an instance defines (called by `Store::instantiate`).
@@ -386,15 +414,32 @@ unsafe extern "sysv64" fn h_misc(ctx: *mut Ctx, inst: u64, op: *const Op, frame:
     }
 }
 
-unsafe extern "sysv64" fn h_call_host(ctx: *mut Ctx, func: u64, args: *mut u64, memory: u64) -> u64 {
+unsafe extern "sysv64" fn h_call_host(
+    ctx: *mut Ctx,
+    func: u64,
+    args: *mut u64,
+    memory: u64,
+) -> u64 {
     let store = unsafe { &mut *(*ctx).store };
     let (f, ty) = match &store.funcs[func as usize] {
         Func::Host { f, ty } => (f.clone(), ty.clone()),
         Func::Wasm { .. } => unreachable!(),
     };
     let s = unsafe { std::slice::from_raw_parts_mut(args, ty.params.len().max(ty.results.len())) };
-    let vals: Vec<Val> = ty.params.iter().enumerate().map(|(i, t)| Val::from_bits(*t, s[i])).collect();
-    let mut caller = Caller { store, memory: if memory == u64::MAX { None } else { Some(memory as u32) } };
+    let vals: Vec<Val> = ty
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, t)| Val::from_bits(*t, s[i]))
+        .collect();
+    let mut caller = Caller {
+        store,
+        memory: if memory == u64::MAX {
+            None
+        } else {
+            Some(memory as u32)
+        },
+    };
     match f(&mut caller, &vals) {
         Ok(r) => {
             for (i, v) in r.iter().enumerate() {
@@ -406,12 +451,20 @@ unsafe extern "sysv64" fn h_call_host(ctx: *mut Ctx, func: u64, args: *mut u64, 
     }
 }
 
-unsafe extern "sysv64" fn h_call_indirect(ctx: *mut Ctx, inst: u64, table_ty: u64, index: u64, args: *mut u64) -> u64 {
+unsafe extern "sysv64" fn h_call_indirect(
+    ctx: *mut Ctx,
+    inst: u64,
+    table_ty: u64,
+    index: u64,
+    args: *mut u64,
+) -> u64 {
     let store = unsafe { &mut *(*ctx).store };
     let i = store.instances[inst as usize].clone();
     let (table, ty) = ((table_ty >> 32) as usize, (table_ty & 0xffff_ffff) as usize);
     let t = &store.tables[i.tables[table] as usize];
-    let Some(&r) = t.elems.get(index as u32 as usize) else { return helper_trap(ctx, Trap::new("undefined element")) };
+    let Some(&r) = t.elems.get(index as u32 as usize) else {
+        return helper_trap(ctx, Trap::new("undefined element"));
+    };
     if r == 0 {
         return helper_trap(ctx, Trap::new("uninitialized element"));
     }
@@ -486,7 +539,9 @@ impl Lazy {
     }
     /// Writes out pending copies of `local` before it changes.
     fn flush_local(&mut self, a: &mut Asm, local: u32) {
-        let (hit, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.p).into_iter().partition(|&(_, v)| v == Pend::Local(local));
+        let (hit, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.p)
+            .into_iter()
+            .partition(|&(_, v)| v == Pend::Local(local));
         self.p = keep;
         for (s, v) in hit {
             Self::emit(a, s, v);
@@ -507,7 +562,6 @@ impl Lazy {
     }
 }
 
-
 struct Labels {
     base: usize,
     epilogue: usize,
@@ -520,7 +574,15 @@ impl Labels {
     }
 }
 
-fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index: u32, addr: u32, code: &Rc<Lowered>, table_ptr: u64) {
+fn compile_function(
+    a: &mut Asm,
+    store: &Store,
+    inst: &Rc<Instance>,
+    inst_index: u32,
+    addr: u32,
+    code: &Rc<Lowered>,
+    table_ptr: u64,
+) {
     let nparams = store.funcs[addr as usize].ty().params.len();
     let ops = &code.ops;
     let base = a.labels.len();
@@ -532,8 +594,15 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
     for t in traps.iter_mut().skip(1) {
         *t = a.label();
     }
-    let l = Labels { base, epilogue, traps };
-    let mem_cell = inst.memories.first().map(|&m| store.memories[m as usize].cell.as_ptr() as u64);
+    let l = Labels {
+        base,
+        epilogue,
+        traps,
+    };
+    let mem_cell = inst
+        .memories
+        .first()
+        .map(|&m| store.memories[m as usize].cell.as_ptr() as u64);
     let mem_addr = inst.memories.first().map_or(u64::MAX, |&m| m as u64);
     let reload_mem = |a: &mut Asm| {
         if let Some(cell) = mem_cell {
@@ -552,7 +621,14 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
     a.mem(None, true, &[0x89], RAX, R15, CTX_DEPTH);
     a.mem(None, true, &[0x3b], RAX, R15, CTX_MAX_DEPTH);
     a.jcc(CC_A, l.traps[T_EXHAUSTED]);
-    a.mem(None, true, &[0x8d], RAX, RBX, 8 * code.max_slots as i32 + 64); // lea rax, [rbx + frame size]
+    a.mem(
+        None,
+        true,
+        &[0x8d],
+        RAX,
+        RBX,
+        8 * code.max_slots as i32 + 64,
+    ); // lea rax, [rbx + frame size]
     a.mem(None, true, &[0x3b], RAX, R15, CTX_STACK_END);
     a.jcc(CC_A, l.traps[T_EXHAUSTED]);
     if code.locals.len() > nparams {
@@ -567,8 +643,13 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
     let mut is_target = vec![false; ops.len() + 1];
     for op in ops.iter() {
         match op {
-            Op::Br { target, .. } | Op::BrIf { target, .. } | Op::JumpIfZero { target, .. } | Op::Jump(target) => is_target[*target as usize] = true,
-            Op::BrTable { targets, .. } => targets.iter().for_each(|&(t, _)| is_target[t as usize] = true),
+            Op::Br { target, .. }
+            | Op::BrIf { target, .. }
+            | Op::JumpIfZero { target, .. }
+            | Op::Jump(target) => is_target[*target as usize] = true,
+            Op::BrTable { targets, .. } => targets
+                .iter()
+                .for_each(|&(t, _)| is_target[t as usize] = true),
             _ => {}
         }
     }
@@ -609,14 +690,22 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
             Op::Num { op: nop, a: s } if !num_via_helper(*nop) => {
                 let binary = crate::validate::num_sig(*nop).is_some_and(|(ins, _)| ins.len() == 2);
                 let x = lazy.resolve(a, *s);
-                let y = if binary { lazy.resolve(a, *s + 1) } else { *s + 1 };
+                let y = if binary {
+                    lazy.resolve(a, *s + 1)
+                } else {
+                    *s + 1
+                };
                 lazy.kill(*s);
                 lazy.kill(*s + 1);
                 let dst = fused_set(ops, &is_target, i, *s, &mut skip, &mut lazy, a);
                 num_op(a, *nop, dst, x, y, &l);
                 continue;
             }
-            Op::Load { op: lop, a: s, offset } => {
+            Op::Load {
+                op: lop,
+                a: s,
+                offset,
+            } => {
                 let x = lazy.resolve(a, *s);
                 lazy.kill(*s);
                 let dst = fused_set(ops, &is_target, i, *s, &mut skip, &mut lazy, a);
@@ -625,7 +714,11 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                 a.store(true, RCX, dst);
                 continue;
             }
-            Op::Store { op: sop, a: s, offset } => {
+            Op::Store {
+                op: sop,
+                a: s,
+                offset,
+            } => {
                 let x = lazy.resolve(a, *s);
                 let y = lazy.resolve(a, *s + 1);
                 lazy.kill(*s);
@@ -637,7 +730,8 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
             }
             Op::GlobalGet { dst, global } => {
                 lazy.kill(*dst);
-                let g = &*store.globals[inst.globals[*global as usize] as usize].value as *const u64 as u64;
+                let g = &*store.globals[inst.globals[*global as usize] as usize].value as *const u64
+                    as u64;
                 a.mov_imm64(RCX, g);
                 a.mem(None, true, &[0x8b], RAX, RCX, 0);
                 a.store(true, RAX, *dst);
@@ -646,7 +740,8 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
             Op::GlobalSet { global, src } => {
                 let r = lazy.resolve(a, *src);
                 lazy.kill(*src);
-                let g = &*store.globals[inst.globals[*global as usize] as usize].value as *const u64 as u64;
+                let g = &*store.globals[inst.globals[*global as usize] as usize].value as *const u64
+                    as u64;
                 a.mov_imm64(RCX, g);
                 a.load(true, RAX, r);
                 a.mem(None, true, &[0x89], RAX, RCX, 0);
@@ -666,11 +761,22 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                 a.b(&[0x80, 0x38, 0x00]); // cmp byte [rax], 0
                 a.jcc(CC_NE, l.traps[T_INTERRUPTED]);
             }
-            Op::Br { target, src, dst, n } => {
+            Op::Br {
+                target,
+                src,
+                dst,
+                n,
+            } => {
                 copy(a, *src, *dst, *n);
                 a.jmp(l.pc(*target));
             }
-            Op::BrIf { cond, target, src, dst, n } => {
+            Op::BrIf {
+                cond,
+                target,
+                src,
+                dst,
+                n,
+            } => {
                 a.load(false, RAX, cond_slot.unwrap_or(*cond));
                 a.test_eax();
                 if *n == 0 || src == dst {
@@ -683,7 +789,12 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                     a.bind(skip);
                 }
             }
-            Op::BrTable { cond, src, n, targets } => {
+            Op::BrTable {
+                cond,
+                src,
+                n,
+                targets,
+            } => {
                 let last = targets.len() as i32 - 1;
                 a.load(false, RAX, *cond);
                 a.b(&[0x3d]); // cmp eax, last
@@ -710,7 +821,11 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                         stubs.push((s, t, dst));
                         s
                     };
-                    a.fixes.push(Fix::Table { at: a.code.len(), label, base: table_start });
+                    a.fixes.push(Fix::Table {
+                        at: a.code.len(),
+                        label,
+                        base: table_start,
+                    });
                     a.i32(0);
                 }
                 for (s, t, dst) in stubs {
@@ -750,7 +865,12 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                 a.jcc(CC_NE, l.epilogue);
                 reload_mem(a);
             }
-            Op::CallIndirect { table, ty, base, index } => {
+            Op::CallIndirect {
+                table,
+                ty,
+                base,
+                index,
+            } => {
                 a.mov_rr(RDI, R15);
                 a.mov_imm64(RSI, inst_index as u64);
                 a.mov_imm64(RDX, (*table as u64) << 32 | *ty as u64);
@@ -761,7 +881,12 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
                 a.jcc(CC_NE, l.epilogue);
                 reload_mem(a);
             }
-            Op::LocalGet { .. } | Op::LocalSet { .. } | Op::LocalTee { .. } | Op::GlobalGet { .. } | Op::GlobalSet { .. } | Op::Const { .. } => {
+            Op::LocalGet { .. }
+            | Op::LocalSet { .. }
+            | Op::LocalTee { .. }
+            | Op::GlobalGet { .. }
+            | Op::GlobalSet { .. }
+            | Op::Const { .. } => {
                 unreachable!()
             }
             Op::Select { a: s } => {
@@ -831,7 +956,15 @@ fn compile_function(a: &mut Asm, store: &Store, inst: &Rc<Instance>, inst_index:
 
 /// If instruction i (writing slot s) is followed by `local.set` of that slot, the result can go
 /// straight to the local: returns the destination slot and marks the local.set as done.
-fn fused_set(ops: &[Op], is_target: &[bool], i: usize, s: u32, skip: &mut [bool], lazy: &mut Lazy, a: &mut Asm) -> u32 {
+fn fused_set(
+    ops: &[Op],
+    is_target: &[bool],
+    i: usize,
+    s: u32,
+    skip: &mut [bool],
+    lazy: &mut Lazy,
+    a: &mut Asm,
+) -> u32 {
     if let Some(Op::LocalSet { local, src }) = ops.get(i + 1)
         && *src == s
         && !is_target[i + 1]
@@ -948,7 +1081,9 @@ fn num_op(a: &mut Asm, op: u16, dst: u32, x: u32, y: u32, l: &Labels) {
         }
         0x46..=0x4f | 0x51..=0x5a => {
             let k = if op >= 0x51 { op - 0x51 } else { op - 0x46 };
-            let cc = [CC_E, CC_NE, CC_L, CC_B, CC_G, CC_A, CC_LE, CC_BE, CC_GE, CC_AE][k as usize];
+            let cc = [
+                CC_E, CC_NE, CC_L, CC_B, CC_G, CC_A, CC_LE, CC_BE, CC_GE, CC_AE,
+            ][k as usize];
             a.load(w, RAX, x);
             a.mem(None, w, &[0x3b], RAX, RBX, 8 * y as i32);
             a.setcc_to_eax(cc);
@@ -1038,13 +1173,27 @@ fn num_op(a: &mut Asm, op: u16, dst: u32, x: u32, y: u32, l: &Labels) {
         }
         0x91 | 0x9f => {
             let d = op == 0x9f;
-            a.mem(Some(if d { 0xf2 } else { 0xf3 }), false, &[0x0f, 0x51], 0, RBX, 8 * x as i32);
+            a.mem(
+                Some(if d { 0xf2 } else { 0xf3 }),
+                false,
+                &[0x0f, 0x51],
+                0,
+                RBX,
+                8 * x as i32,
+            );
             store_xmm0(a, d, dst);
         }
         0x8d..=0x90 | 0x9b..=0x9e => {
             let d = op >= 0x9b;
             let mode = [2u8, 1, 3, 0][(op - if d { 0x9b } else { 0x8d }) as usize] | 8; // ceil floor trunc nearest
-            a.mem(Some(0x66), false, &[0x0f, 0x3a, if d { 0x0b } else { 0x0a }], 0, RBX, 8 * x as i32);
+            a.mem(
+                Some(0x66),
+                false,
+                &[0x0f, 0x3a, if d { 0x0b } else { 0x0a }],
+                0,
+                RBX,
+                8 * x as i32,
+            );
             a.code.push(mode);
             store_xmm0(a, d, dst);
         }
@@ -1059,11 +1208,15 @@ fn num_op(a: &mut Asm, op: u16, dst: u32, x: u32, y: u32, l: &Labels) {
             match k {
                 0 => {
                     a.rr(p, false, &[0x0f, 0x2e], 0, 1);
-                    a.b(&[0x0f, 0x94, 0xc0, 0x0f, 0x9b, 0xc1, 0x20, 0xc8, 0x0f, 0xb6, 0xc0]); // sete al; setnp cl; and al, cl; movzx
+                    a.b(&[
+                        0x0f, 0x94, 0xc0, 0x0f, 0x9b, 0xc1, 0x20, 0xc8, 0x0f, 0xb6, 0xc0,
+                    ]); // sete al; setnp cl; and al, cl; movzx
                 }
                 1 => {
                     a.rr(p, false, &[0x0f, 0x2e], 0, 1);
-                    a.b(&[0x0f, 0x95, 0xc0, 0x0f, 0x9a, 0xc1, 0x08, 0xc8, 0x0f, 0xb6, 0xc0]); // setne al; setp cl; or al, cl; movzx
+                    a.b(&[
+                        0x0f, 0x95, 0xc0, 0x0f, 0x9a, 0xc1, 0x08, 0xc8, 0x0f, 0xb6, 0xc0,
+                    ]); // setne al; setp cl; or al, cl; movzx
                 }
                 2 | 4 => {
                     a.rr(p, false, &[0x0f, 0x2e], 1, 0); // compare b with a
@@ -1133,11 +1286,25 @@ fn num_op(a: &mut Asm, op: u16, dst: u32, x: u32, y: u32, l: &Labels) {
             }
         }
         0xc0 | 0xc1 => {
-            a.mem(None, false, &[0x0f, if op == 0xc0 { 0xbe } else { 0xbf }], RAX, RBX, 8 * x as i32);
+            a.mem(
+                None,
+                false,
+                &[0x0f, if op == 0xc0 { 0xbe } else { 0xbf }],
+                RAX,
+                RBX,
+                8 * x as i32,
+            );
             a.store(true, RAX, dst);
         }
         0xc2 | 0xc3 => {
-            a.mem(None, true, &[0x0f, if op == 0xc2 { 0xbe } else { 0xbf }], RAX, RBX, 8 * x as i32);
+            a.mem(
+                None,
+                true,
+                &[0x0f, if op == 0xc2 { 0xbe } else { 0xbf }],
+                RAX,
+                RBX,
+                8 * x as i32,
+            );
             a.store(true, RAX, dst);
         }
         0xc4 => {
@@ -1149,7 +1316,13 @@ fn num_op(a: &mut Asm, op: u16, dst: u32, x: u32, y: u32, l: &Labels) {
             let unsigned32 = op == 0xb3 || op == 0xb8;
             let src64 = unsigned32 || op == 0xb4 || op == 0xb9;
             a.load(op == 0xb4 || op == 0xb9, RAX, x); // 32-bit loads zero-extend
-            a.rr(Some(if d { 0xf2 } else { 0xf3 }), src64, &[0x0f, 0x2a], 0, RAX); // cvtsi2ss/sd xmm0, eax/rax
+            a.rr(
+                Some(if d { 0xf2 } else { 0xf3 }),
+                src64,
+                &[0x0f, 0x2a],
+                0,
+                RAX,
+            ); // cvtsi2ss/sd xmm0, eax/rax
             store_xmm0(a, d, dst);
         }
         0xb6 | 0xbb => {

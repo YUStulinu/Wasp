@@ -38,7 +38,17 @@ pub struct Runner {
 }
 
 fn bytes_of(items: &[Sx]) -> Vec<u8> {
-    items.iter().filter_map(|s| if let Sx::Str(b) = s { Some(b.clone()) } else { None }).flatten().collect()
+    items
+        .iter()
+        .filter_map(|s| {
+            if let Sx::Str(b) = s {
+                Some(b.clone())
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .collect()
 }
 
 enum ModError {
@@ -67,10 +77,22 @@ impl Runner {
             ("print_i32_f32", vec![ValType::I32, ValType::F32]),
             ("print_f64_f64", vec![ValType::F64, ValType::F64]),
         ] {
-            let f = store.add_host_func(FuncType { params: params.clone(), results: vec![] }, print(params));
+            let f = store.add_host_func(
+                FuncType {
+                    params: params.clone(),
+                    results: vec![],
+                },
+                print(params),
+            );
             spectest.insert(name.to_string(), Extern::Func(f));
         }
-        let g = |t, v| GlobalType { ty: t, mutable: false }.into_pair(v);
+        let g = |t, v| {
+            GlobalType {
+                ty: t,
+                mutable: false,
+            }
+            .into_pair(v)
+        };
         for (name, (ty, v)) in [
             ("global_i32", g(ValType::I32, Val::I32(666))),
             ("global_i64", g(ValType::I64, Val::I64(666))),
@@ -79,11 +101,27 @@ impl Runner {
         ] {
             spectest.insert(name.to_string(), Extern::Global(store.add_global(ty, v)));
         }
-        let t = store.add_table(TableType { elem: ValType::FuncRef, limits: crate::module::Limits { min: 10, max: Some(20) } });
+        let t = store.add_table(TableType {
+            elem: ValType::FuncRef,
+            limits: crate::module::Limits {
+                min: 10,
+                max: Some(20),
+            },
+        });
         spectest.insert("table".into(), Extern::Table(t));
-        let m = store.add_memory(crate::module::Limits { min: 1, max: Some(2) });
+        let m = store.add_memory(crate::module::Limits {
+            min: 1,
+            max: Some(2),
+        });
         spectest.insert("memory".into(), Extern::Memory(m));
-        Runner { store, registry: HashMap::new(), named: HashMap::new(), last: None, spectest, result: WastResult::default() }
+        Runner {
+            store,
+            registry: HashMap::new(),
+            named: HashMap::new(),
+            last: None,
+            spectest,
+            result: WastResult::default(),
+        }
     }
 
     fn pass(&mut self) {
@@ -112,7 +150,11 @@ impl Runner {
                 // A quoted module may itself be wrapped in (module ...).
                 if sx.len() == 1 && sx[0].head() == Some("module") {
                     let inner = sx[0].list().unwrap();
-                    let skip = if inner.get(1).is_some_and(|s| s.is_id()) { 2 } else { 1 };
+                    let skip = if inner.get(1).is_some_and(|s| s.is_id()) {
+                        2
+                    } else {
+                        1
+                    };
                     return Ok((name, compile_module(&inner[skip..])?));
                 }
                 Ok((name, compile_module(&sx)?))
@@ -130,13 +172,18 @@ impl Runner {
             let ext = if imp.module == "spectest" {
                 self.spectest.get(&imp.name).copied()
             } else {
-                self.registry.get(&imp.module).and_then(|&i| self.store.export(i, &imp.name))
+                self.registry
+                    .get(&imp.module)
+                    .and_then(|&i| self.store.export(i, &imp.name))
             };
             if let Some(e) = ext {
                 imports.insert((imp.module.clone(), imp.name.clone()), e);
             }
         }
-        let inst = self.store.instantiate(&m, code, &imports).map_err(ModError::Link)?;
+        let inst = self
+            .store
+            .instantiate(&m, code, &imports)
+            .map_err(ModError::Link)?;
         Ok((name, inst))
     }
 
@@ -200,8 +247,12 @@ impl Runner {
             id = l[1].atom();
             i = 2;
         }
-        let inst = self.instance(id).ok_or_else(|| Trap::new("unknown module"))?;
-        let Some(Sx::Str(name)) = l.get(i) else { return Err(Trap::new("bad action")) };
+        let inst = self
+            .instance(id)
+            .ok_or_else(|| Trap::new("unknown module"))?;
+        let Some(Sx::Str(name)) = l.get(i) else {
+            return Err(Trap::new("bad action"));
+        };
         let name = String::from_utf8_lossy(name).to_string();
         match kind {
             "invoke" => {
@@ -228,9 +279,13 @@ impl Runner {
             (Expected::Val(Val::F64(w)), Val::F64(g)) => w == g,
             (Expected::Val(w), g) => w == g,
             (Expected::CanonicalNan(ValType::F32), Val::F32(g)) => g & 0x7fff_ffff == 0x7fc0_0000,
-            (Expected::CanonicalNan(_), Val::F64(g)) => g & 0x7fff_ffff_ffff_ffff == 0x7ff8_0000_0000_0000,
+            (Expected::CanonicalNan(_), Val::F64(g)) => {
+                g & 0x7fff_ffff_ffff_ffff == 0x7ff8_0000_0000_0000
+            }
             (Expected::ArithmeticNan(ValType::F32), Val::F32(g)) => g & 0x7fc0_0000 == 0x7fc0_0000,
-            (Expected::ArithmeticNan(_), Val::F64(g)) => g & 0x7ff8_0000_0000_0000 == 0x7ff8_0000_0000_0000,
+            (Expected::ArithmeticNan(_), Val::F64(g)) => {
+                g & 0x7ff8_0000_0000_0000 == 0x7ff8_0000_0000_0000
+            }
             (Expected::AnyFuncRef, Val::FuncRef(Some(_))) => true,
             _ => false,
         }
@@ -255,10 +310,13 @@ impl Runner {
                 }
             },
             "register" => {
-                let Some(Sx::Str(name)) = l.get(1) else { return };
+                let Some(Sx::Str(name)) = l.get(1) else {
+                    return;
+                };
                 let id = l.get(2).and_then(|s| s.atom());
                 if let Some(i) = self.instance(id) {
-                    self.registry.insert(String::from_utf8_lossy(name).to_string(), i);
+                    self.registry
+                        .insert(String::from_utf8_lossy(name).to_string(), i);
                 }
             }
             "invoke" | "get" => {
@@ -276,7 +334,9 @@ impl Runner {
                 };
                 match self.action(act) {
                     Ok(got) => {
-                        if got.len() == want.len() && got.iter().zip(&want).all(|(g, w)| Self::matches(g, w)) {
+                        if got.len() == want.len()
+                            && got.iter().zip(&want).all(|(g, w)| Self::matches(g, w))
+                        {
                             self.pass();
                         } else {
                             self.fail(here(&format!("got {got:?}, expected {want:?}")));
@@ -302,18 +362,22 @@ impl Runner {
             }
             "assert_invalid" => match self.load(l[1].list().unwrap()) {
                 Err(ModError::Invalid(_)) => self.pass(),
-                Err(ModError::Malformed(e)) => self.fail(here(&format!("rejected as malformed instead: {e}"))),
+                Err(ModError::Malformed(e)) => {
+                    self.fail(here(&format!("rejected as malformed instead: {e}")))
+                }
                 _ => self.fail(here("module was accepted")),
             },
             "assert_malformed" => match self.load(l[1].list().unwrap()) {
                 Err(ModError::Malformed(_)) | Err(ModError::Invalid(_)) => self.pass(),
                 _ => self.fail(here("module was accepted")),
             },
-            "assert_unlinkable" | "assert_uninstantiable" => match self.load(l[1].list().unwrap()) {
-                Err(ModError::Link(_)) => self.pass(),
-                Ok(_) => self.fail(here("module was instantiated")),
-                Err(_) => self.fail(here("module rejected before instantiation")),
-            },
+            "assert_unlinkable" | "assert_uninstantiable" => {
+                match self.load(l[1].list().unwrap()) {
+                    Err(ModError::Link(_)) => self.pass(),
+                    Ok(_) => self.fail(here("module was instantiated")),
+                    Err(_) => self.fail(here("module rejected before instantiation")),
+                }
+            }
             _ => self.fail(here("unknown command")),
         }
     }
@@ -331,12 +395,24 @@ impl IntoPair for GlobalType {
 pub fn run_wast(src: &str, jit: bool) -> WastResult {
     let cmds = match parse_sexprs(src) {
         Ok(c) => c,
-        Err(e) => return WastResult { passed: 0, failed: 1, failures: vec![format!("could not parse script: {e}")] },
+        Err(e) => {
+            return WastResult {
+                passed: 0,
+                failed: 1,
+                failures: vec![format!("could not parse script: {e}")],
+            };
+        }
     };
     let mut r = Runner::new(jit);
     // A script may be a bare module: its fields at the top level.
-    const FIELDS: &[&str] = &["func", "memory", "table", "global", "type", "import", "export", "elem", "data", "start"];
-    let cmds = if cmds.first().and_then(|c| c.head()).is_some_and(|h| FIELDS.contains(&h)) {
+    const FIELDS: &[&str] = &[
+        "func", "memory", "table", "global", "type", "import", "export", "elem", "data", "start",
+    ];
+    let cmds = if cmds
+        .first()
+        .and_then(|c| c.head())
+        .is_some_and(|h| FIELDS.contains(&h))
+    {
         vec![Sx::List([vec![Sx::Atom("module".into())], cmds].concat())]
     } else {
         cmds

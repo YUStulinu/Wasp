@@ -36,6 +36,6 @@ int main(int argc, char **argv) {
     }
     double e = 0;
     for (int i = 0; i < 5; i++) e += b[i].x + b[i].y + b[i].z;
-    REPORT("nbody", (uint64_t)(int64_t)(e * 1e6), t0);
+    REPORT("nbody", dsum(&e, 1), t0);
     return 0;
 }

@@ -17,10 +17,18 @@ pub enum Sx {
 
 impl Sx {
     pub fn atom(&self) -> Option<&str> {
-        if let Sx::Atom(a) = self { Some(a) } else { None }
+        if let Sx::Atom(a) = self {
+            Some(a)
+        } else {
+            None
+        }
     }
     pub fn list(&self) -> Option<&[Sx]> {
-        if let Sx::List(l) = self { Some(l) } else { None }
+        if let Sx::List(l) = self {
+            Some(l)
+        } else {
+            None
+        }
     }
     pub fn head(&self) -> Option<&str> {
         self.list().and_then(|l| l.first()).and_then(|h| h.atom())
@@ -104,9 +112,16 @@ pub fn parse_sexprs(src: &str) -> WResult<Vec<Sx>> {
                                     if b.get(i) != Some(&b'{') {
                                         return Err("malformed escape".into());
                                     }
-                                    let end = b[i..].iter().position(|&x| x == b'}').ok_or("malformed escape")? + i;
-                                    let hex: String = std::str::from_utf8(&b[i + 1..end]).unwrap().replace('_', "");
-                                    let cp = u32::from_str_radix(&hex, 16).map_err(|_| "malformed escape")?;
+                                    let end = b[i..]
+                                        .iter()
+                                        .position(|&x| x == b'}')
+                                        .ok_or("malformed escape")?
+                                        + i;
+                                    let hex: String = std::str::from_utf8(&b[i + 1..end])
+                                        .unwrap()
+                                        .replace('_', "");
+                                    let cp = u32::from_str_radix(&hex, 16)
+                                        .map_err(|_| "malformed escape")?;
                                     let ch = char::from_u32(cp).ok_or("malformed escape")?;
                                     let mut buf = [0; 4];
                                     s.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
@@ -117,19 +132,33 @@ pub fn parse_sexprs(src: &str) -> WResult<Vec<Sx>> {
                                     if !l.is_ascii_hexdigit() {
                                         return Err("malformed escape".into());
                                     }
-                                    s.push(u8::from_str_radix(std::str::from_utf8(&[h, l]).unwrap(), 16).unwrap());
+                                    s.push(
+                                        u8::from_str_radix(
+                                            std::str::from_utf8(&[h, l]).unwrap(),
+                                            16,
+                                        )
+                                        .unwrap(),
+                                    );
                                     i += 1;
                                 }
                                 _ => return Err("malformed escape".into()),
                             }
                         }
-                        c if c < 0x20 || c == 0x7f => return Err("control character in string".into()),
+                        c if c < 0x20 || c == 0x7f => {
+                            return Err("control character in string".into());
+                        }
                         c => s.push(c),
                     }
                 }
                 stack.last_mut().unwrap().push(Sx::Str(s));
                 if let Some(&n) = b.get(i)
-                    && !(n == b' ' || n == b'\t' || n == b'\n' || n == b'\r' || n == b'(' || n == b')' || n == b';')
+                    && !(n == b' '
+                        || n == b'\t'
+                        || n == b'\n'
+                        || n == b'\r'
+                        || n == b'('
+                        || n == b')'
+                        || n == b';')
                 {
                     return Err("unknown operator".into());
                 }
@@ -142,7 +171,10 @@ pub fn parse_sexprs(src: &str) -> WResult<Vec<Sx>> {
                 if i < b.len() && b[i] == b'"' {
                     return Err("unknown operator".into());
                 }
-                stack.last_mut().unwrap().push(Sx::Atom(src[start..i].to_string()));
+                stack
+                    .last_mut()
+                    .unwrap()
+                    .push(Sx::Atom(src[start..i].to_string()));
             }
             _ => return Err(format!("unexpected character {:?}", c as char)),
         }
@@ -159,7 +191,14 @@ fn digits(s: &str, hex: bool) -> WResult<String> {
     if s.is_empty() || s.starts_with('_') || s.ends_with('_') || s.contains("__") {
         return Err("unknown operator".into());
     }
-    let ok = s.chars().all(|c| c == '_' || if hex { c.is_ascii_hexdigit() } else { c.is_ascii_digit() });
+    let ok = s.chars().all(|c| {
+        c == '_'
+            || if hex {
+                c.is_ascii_hexdigit()
+            } else {
+                c.is_ascii_digit()
+            }
+    });
     if !ok {
         return Err("unknown operator".into());
     }
@@ -176,14 +215,21 @@ pub fn parse_int(s: &str, bits: u32) -> WResult<u64> {
     let v: u128 = if let Some(h) = rest.strip_prefix("0x") {
         u128::from_str_radix(&digits(h, true)?, 16).map_err(|_| "constant out of range")?
     } else {
-        digits(rest, false)?.parse::<u128>().map_err(|_| "constant out of range")?
+        digits(rest, false)?
+            .parse::<u128>()
+            .map_err(|_| "constant out of range")?
     };
     let max: u128 = 1 << bits;
     if neg {
         if v > max / 2 {
             return Err("constant out of range".into());
         }
-        Ok((v as u64).wrapping_neg() & if bits == 64 { u64::MAX } else { (1u64 << bits) - 1 })
+        Ok((v as u64).wrapping_neg()
+            & if bits == 64 {
+                u64::MAX
+            } else {
+                (1u64 << bits) - 1
+            })
     } else {
         if v >= max {
             return Err("constant out of range".into());
@@ -215,7 +261,13 @@ fn round_float(mut mant: u128, mut exp: i64, mut sticky: bool, m: u32, e: u32) -
         }
     }
     let drop = 128 - keep;
-    let (kept, rem) = if drop >= 128 { (0u128, mant) } else if drop == 0 { (mant, 0) } else { (mant >> drop, mant << (128 - drop)) };
+    let (kept, rem) = if drop >= 128 {
+        (0u128, mant)
+    } else if drop == 0 {
+        (mant, 0)
+    } else {
+        (mant >> drop, mant << (128 - drop))
+    };
     let half = 1u128 << 127;
     sticky |= rem & (half - 1) != 0;
     let mut kept = kept;
@@ -255,7 +307,8 @@ fn parse_float(s: &str, m: u32, e: u32) -> WResult<u64> {
         return Ok(sign | exp_all | 1 << (m - 1));
     }
     if let Some(p) = rest.strip_prefix("nan:0x") {
-        let payload = u64::from_str_radix(&digits(p, true)?, 16).map_err(|_| "constant out of range")?;
+        let payload =
+            u64::from_str_radix(&digits(p, true)?, 16).map_err(|_| "constant out of range")?;
         if payload == 0 || payload >> m != 0 {
             return Err("constant out of range".into());
         }
@@ -272,7 +325,11 @@ fn parse_float(s: &str, m: u32, e: u32) -> WResult<u64> {
             None => (mantissa_part, ""),
         };
         let int = digits(int, true)?;
-        let frac = if frac.is_empty() { String::new() } else { digits(frac, true)? };
+        let frac = if frac.is_empty() {
+            String::new()
+        } else {
+            digits(frac, true)?
+        };
         let mut mant: u128 = 0;
         let mut exp: i64 = 0;
         let mut sticky = false;
@@ -296,7 +353,10 @@ fn parse_float(s: &str, m: u32, e: u32) -> WResult<u64> {
                 Some(b'+') => (1, &x[1..]),
                 _ => (1, x),
             };
-            let v: i64 = digits(xd, false)?.parse::<i64>().unwrap_or(i64::MAX / 4).min(1 << 40);
+            let v: i64 = digits(xd, false)?
+                .parse::<i64>()
+                .unwrap_or(i64::MAX / 4)
+                .min(1 << 40);
             exp += sgn * v;
         }
         round_float(mant, exp, sticky, m, e)?
@@ -404,7 +464,10 @@ impl Space {
     fn resolve(&self, s: &Sx, what: &str) -> WResult<u32> {
         let a = s.atom().ok_or("unexpected token")?;
         if a.starts_with('$') {
-            self.names.get(a).copied().ok_or_else(|| format!("unknown {what} {a}"))
+            self.names
+                .get(a)
+                .copied()
+                .ok_or_else(|| format!("unknown {what} {a}"))
         } else {
             Ok(parse_int(a, 32).map_err(|_| "unexpected token".to_string())? as u32)
         }
@@ -489,13 +552,19 @@ impl<'a> Cur<'a> {
         self.pos >= self.items.len()
     }
     fn id(&mut self) -> Option<&'a str> {
-        if self.peek().is_some_and(|s| s.is_id()) { self.next().and_then(|s| s.atom()) } else { None }
+        if self.peek().is_some_and(|s| s.is_id()) {
+            self.next().and_then(|s| s.atom())
+        } else {
+            None
+        }
     }
     fn peek_head(&self) -> Option<&'a str> {
         self.peek().and_then(|s| s.head())
     }
     fn atom(&mut self) -> WResult<&'a str> {
-        self.next().and_then(|s| s.atom()).ok_or_else(|| "unexpected token".into())
+        self.next()
+            .and_then(|s| s.atom())
+            .ok_or_else(|| "unexpected token".into())
     }
 }
 
@@ -584,7 +653,8 @@ impl Enc {
         while c.peek_head() == Some("result") {
             let l = c.next().unwrap().list().unwrap();
             for x in &l[1..] {
-                sig.results.push(valtype(x.atom().ok_or("unexpected token")?)?);
+                sig.results
+                    .push(valtype(x.atom().ok_or("unexpected token")?)?);
             }
         }
         Ok((sig, names))
@@ -613,7 +683,11 @@ impl Enc {
                 if (!sig.params.is_empty() || !sig.results.is_empty()) && sig != ty {
                     return Err("inline function type".into());
                 }
-                let names = if names.is_empty() { vec![None; ty.params.len()] } else { names };
+                let names = if names.is_empty() {
+                    vec![None; ty.params.len()]
+                } else {
+                    names
+                };
                 Ok((t, names))
             }
             None => Ok((self.intern(sig), names)),
@@ -622,7 +696,11 @@ impl Enc {
 
     fn limits(c: &mut Cur, out: &mut Vec<u8>) -> WResult<()> {
         let min = parse_int(c.atom()?, 32).map_err(|_| "unexpected token")? as u32;
-        let max = if c.peek().and_then(|s| s.atom()).is_some_and(|a| a.chars().next().is_some_and(|ch| ch.is_ascii_digit())) {
+        let max = if c
+            .peek()
+            .and_then(|s| s.atom())
+            .is_some_and(|a| a.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
+        {
             Some(parse_int(c.atom()?, 32).map_err(|_| "unexpected token")? as u32)
         } else {
             None
@@ -644,7 +722,9 @@ impl Enc {
     fn export_inline(&mut self, c: &mut Cur, kind: u8, index: u32) -> WResult<()> {
         while c.peek_head() == Some("export") {
             let l = c.next().unwrap().list().unwrap();
-            let Some(Sx::Str(name)) = l.get(1) else { return Err("unexpected token".into()) };
+            let Some(Sx::Str(name)) = l.get(1) else {
+                return Err("unexpected token".into());
+            };
             name_bytes(&mut self.sec_export, name);
             self.sec_export.push(kind);
             leb_u32(&mut self.sec_export, index);
@@ -698,7 +778,9 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
     let mut seen_def = false;
     for pass in 0..2 {
         for f in fields {
-            let Some(head) = f.head() else { return Err("unexpected token".into()) };
+            let Some(head) = f.head() else {
+                return Err("unexpected token".into());
+            };
             let l = f.list().unwrap();
             let mut c = Cur::new(&l[1..]);
             let is_import = head == "import" || {
@@ -720,7 +802,10 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
                 space.add(id)?;
             } else if head == "import" && pass == 0 {
                 let l2 = l.get(3).and_then(|x| x.list()).ok_or("unexpected token")?;
-                let kind = l2.first().and_then(|x| x.atom()).ok_or("unexpected token")?;
+                let kind = l2
+                    .first()
+                    .and_then(|x| x.atom())
+                    .ok_or("unexpected token")?;
                 let id = l2.get(1).filter(|x| x.is_id()).and_then(|x| x.atom());
                 match kind {
                     "func" => e.funcs.add(id)?,
@@ -749,7 +834,11 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
                 while c2.peek_head() == Some("export") {
                     c2.next();
                 }
-                if c2.peek().and_then(|x| x.atom()).is_some_and(|a| a == "funcref" || a == "externref") {
+                if c2
+                    .peek()
+                    .and_then(|x| x.atom())
+                    .is_some_and(|a| a == "funcref" || a == "externref")
+                {
                     c2.next();
                     if c2.peek_head() == Some("elem") {
                         e.elems.add(None)?;
@@ -796,7 +885,12 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
             .count() as u32
     };
     let (mut imp_func, mut imp_table, mut imp_mem, mut imp_global) = (0u32, 0u32, 0u32, 0u32);
-    let n_imp = [imported("func"), imported("table"), imported("memory"), imported("global")];
+    let n_imp = [
+        imported("func"),
+        imported("table"),
+        imported("memory"),
+        imported("global"),
+    ];
     let mut pending_elems: Vec<Sx> = Vec::new();
     let mut pending_datas: Vec<Sx> = Vec::new();
     for f in fields {
@@ -806,8 +900,12 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
         match head {
             "type" => {}
             "import" => {
-                let Some(Sx::Str(m)) = l.get(1) else { return Err("unexpected token".into()) };
-                let Some(Sx::Str(n)) = l.get(2) else { return Err("unexpected token".into()) };
+                let Some(Sx::Str(m)) = l.get(1) else {
+                    return Err("unexpected token".into());
+                };
+                let Some(Sx::Str(n)) = l.get(2) else {
+                    return Err("unexpected token".into());
+                };
                 let d = l.get(3).and_then(|x| x.list()).ok_or("unexpected token")?;
                 if l.len() != 4 {
                     return Err("unexpected token".into());
@@ -889,7 +987,11 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
                     let mut desc = vec![vt_byte(valtype(c.atom()?)?)];
                     desc.extend(lim);
                     e.add_import(&m, &n, 1, &desc);
-                } else if c.peek().and_then(|x| x.atom()).is_some_and(|a| a == "funcref" || a == "externref") {
+                } else if c
+                    .peek()
+                    .and_then(|x| x.atom())
+                    .is_some_and(|a| a == "funcref" || a == "externref")
+                {
                     // (table reftype (elem ...)): size from the element list.
                     let rt = valtype(c.atom()?)?;
                     let el = c.next().and_then(|x| x.list()).ok_or("unexpected token")?;
@@ -904,9 +1006,26 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
                     e.n_table += 1;
                     // Synthesised active segment at offset 0.
                     let seg = Sx::List(
-                        [vec![Sx::Atom("elem".into()), Sx::List(vec![Sx::Atom("table".into()), Sx::Atom(idx.to_string())]), Sx::List(vec![Sx::Atom("i32.const".into()), Sx::Atom("0".into())])],
-                         if el.get(1).is_some_and(|x| x.list().is_some()) { vec![Sx::Atom(if rt == ValType::FuncRef { "funcref" } else { "externref" }.into())] } else { vec![Sx::Atom("func".into())] },
-                         el[1..].to_vec()]
+                        [
+                            vec![
+                                Sx::Atom("elem".into()),
+                                Sx::List(vec![Sx::Atom("table".into()), Sx::Atom(idx.to_string())]),
+                                Sx::List(vec![Sx::Atom("i32.const".into()), Sx::Atom("0".into())]),
+                            ],
+                            if el.get(1).is_some_and(|x| x.list().is_some()) {
+                                vec![Sx::Atom(
+                                    if rt == ValType::FuncRef {
+                                        "funcref"
+                                    } else {
+                                        "externref"
+                                    }
+                                    .into(),
+                                )]
+                            } else {
+                                vec![Sx::Atom("func".into())]
+                            },
+                            el[1..].to_vec(),
+                        ]
                         .concat(),
                     );
                     pending_elems.push(seg);
@@ -945,7 +1064,9 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
                     let dl = c.next().unwrap().list().unwrap();
                     let mut bytes = Vec::new();
                     for s in &dl[1..] {
-                        let Sx::Str(b) = s else { return Err("unexpected token".into()) };
+                        let Sx::Str(b) = s else {
+                            return Err("unexpected token".into());
+                        };
                         bytes.extend_from_slice(b);
                     }
                     let pages = bytes.len().div_ceil(65536) as u32;
@@ -994,7 +1115,9 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
                 }
             }
             "export" => {
-                let Some(Sx::Str(name)) = l.get(1) else { return Err("unexpected token".into()) };
+                let Some(Sx::Str(name)) = l.get(1) else {
+                    return Err("unexpected token".into());
+                };
                 let d = l.get(2).and_then(|x| x.list()).ok_or("unexpected token")?;
                 let (kind, space) = match d[0].atom().unwrap() {
                     "func" => (0, &e.funcs),
@@ -1013,7 +1136,10 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
                 if e.start.is_some() {
                     return Err("multiple start sections".into());
                 }
-                e.start = Some(e.funcs.resolve(l.get(1).ok_or("unexpected token")?, "function")?);
+                e.start = Some(
+                    e.funcs
+                        .resolve(l.get(1).ok_or("unexpected token")?, "function")?,
+                );
             }
             "elem" => pending_elems.push(f.clone()),
             "data" => pending_datas.push(f.clone()),
@@ -1120,11 +1246,18 @@ pub fn compile_module(fields: &[Sx]) -> WResult<Vec<u8>> {
 }
 
 fn peek_import_after_exports(c: &Cur) -> Option<()> {
-    let mut c2 = Cur { items: c.items, pos: c.pos };
+    let mut c2 = Cur {
+        items: c.items,
+        pos: c.pos,
+    };
     while c2.peek_head() == Some("export") {
         c2.next();
     }
-    if c2.peek_head() == Some("import") { Some(()) } else { None }
+    if c2.peek_head() == Some("import") {
+        Some(())
+    } else {
+        None
+    }
 }
 
 fn global_type(c: &mut Cur, out: &mut Vec<u8>) -> WResult<()> {
@@ -1171,7 +1304,10 @@ fn encode_elem(e: &mut Enc, l: &[Sx]) -> WResult<()> {
     }
     if c.peek_head() == Some("table") {
         let tl = c.next().unwrap().list().unwrap();
-        table = Some(e.tables.resolve(tl.get(1).ok_or("unexpected token")?, "table")?);
+        table = Some(
+            e.tables
+                .resolve(tl.get(1).ok_or("unexpected token")?, "table")?,
+        );
     }
     if mode == 0 {
         match c.peek() {
@@ -1225,12 +1361,25 @@ fn encode_elem(e: &mut Enc, l: &[Sx]) -> WResult<()> {
     }
     let out = &mut e.sec_elem;
     // Flags 4 (implicit table 0, expressions) means funcref; other types need flags 6.
-    let explicit_table = table.is_some_and(|t| t != 0) || (mode == 0 && use_exprs && ty != ValType::FuncRef);
+    let explicit_table =
+        table.is_some_and(|t| t != 0) || (mode == 0 && use_exprs && ty != ValType::FuncRef);
     let flags: u32 = match (mode, use_exprs) {
-        (0, false) => if explicit_table { 2 } else { 0 },
+        (0, false) => {
+            if explicit_table {
+                2
+            } else {
+                0
+            }
+        }
         (1, false) => 1,
         (2, false) => 3,
-        (0, true) => if explicit_table { 6 } else { 4 },
+        (0, true) => {
+            if explicit_table {
+                6
+            } else {
+                4
+            }
+        }
         (1, true) => 5,
         _ => 7,
     };
@@ -1265,7 +1414,10 @@ fn encode_data(e: &mut Enc, l: &[Sx]) -> WResult<()> {
     let mut mem: Option<u32> = None;
     if c.peek_head() == Some("memory") {
         let ml = c.next().unwrap().list().unwrap();
-        mem = Some(e.mems.resolve(ml.get(1).ok_or("unexpected token")?, "memory")?);
+        mem = Some(
+            e.mems
+                .resolve(ml.get(1).ok_or("unexpected token")?, "memory")?,
+        );
     }
     let mut offset = None;
     if c.peek().is_some_and(|s| s.list().is_some()) {
@@ -1275,7 +1427,9 @@ fn encode_data(e: &mut Enc, l: &[Sx]) -> WResult<()> {
     }
     let mut bytes = Vec::new();
     while let Some(s) = c.next() {
-        let Sx::Str(b) = s else { return Err("unexpected token".into()) };
+        let Sx::Str(b) = s else {
+            return Err("unexpected token".into());
+        };
         bytes.extend_from_slice(b);
     }
     let out = &mut e.sec_data;
@@ -1310,7 +1464,14 @@ struct FuncBody {
 
 impl FuncBody {
     fn new(_e: &Enc, params: Vec<ValType>, names: Vec<Option<String>>) -> Self {
-        let mut fb = FuncBody { duplicate: false, locals: Space::default(), local_count: 0, labels: vec![], code: vec![], results: vec![] };
+        let mut fb = FuncBody {
+            duplicate: false,
+            locals: Space::default(),
+            local_count: 0,
+            labels: vec![],
+            code: vec![],
+            results: vec![],
+        };
         for (i, _) in params.iter().enumerate() {
             let n = names.get(i).cloned().flatten();
             if fb.locals.add(n.as_deref()).is_err() {
@@ -1344,14 +1505,20 @@ impl FuncBody {
         let has_type = c.peek_head() == Some("type");
         let save = c.pos;
         let (sig, _) = {
-            let mut c2 = Cur { items: c.items, pos: c.pos };
+            let mut c2 = Cur {
+                items: c.items,
+                pos: c.pos,
+            };
             if has_type {
                 c2.next();
             }
             e.sig(&mut c2, false)?
         };
         if !has_type && sig.params.is_empty() && sig.results.len() <= 1 {
-            let mut c2 = Cur { items: c.items, pos: save };
+            let mut c2 = Cur {
+                items: c.items,
+                pos: save,
+            };
             e.sig(&mut c2, false)?;
             c.pos = c2.pos;
             match sig.results.first() {
@@ -1420,7 +1587,14 @@ impl FuncBody {
             }
             "if" => {
                 let label = Self::block_label(&mut c);
-                let mut bt = FuncBody { duplicate: false, locals: Space::default(), local_count: 0, labels: vec![], code: vec![], results: vec![] };
+                let mut bt = FuncBody {
+                    duplicate: false,
+                    locals: Space::default(),
+                    local_count: 0,
+                    labels: vec![],
+                    code: vec![],
+                    results: vec![],
+                };
                 bt.blocktype(e, &mut c)?;
                 // Condition: folded instructions before (then ...).
                 while c.peek().is_some_and(|s| s.head() != Some("then")) {
@@ -1466,7 +1640,12 @@ impl FuncBody {
                 }
                 // Typeuse-like immediates (type/param/result) are lists too: keep them with the op.
                 let mut operands_start = 1 + imm_end;
-                while operands_start < l.len() && matches!(l[operands_start].head(), Some("type") | Some("param") | Some("result")) {
+                while operands_start < l.len()
+                    && matches!(
+                        l[operands_start].head(),
+                        Some("type") | Some("param") | Some("result")
+                    )
+                {
                     operands_start += 1;
                 }
                 for operand in &l[operands_start..] {
@@ -1486,14 +1665,22 @@ impl FuncBody {
     fn memarg(&mut self, c: &mut Cur, natural: u32) -> WResult<()> {
         let mut offset = 0u64;
         let mut align = 1u64 << natural;
-        if let Some(a) = c.peek().and_then(|s| s.atom()).and_then(|a| a.strip_prefix("offset=")) {
+        if let Some(a) = c
+            .peek()
+            .and_then(|s| s.atom())
+            .and_then(|a| a.strip_prefix("offset="))
+        {
             offset = parse_int(a, 64).map_err(|_| "unexpected token")?;
             if offset > u32::MAX as u64 || a.starts_with('-') || a.starts_with('+') {
                 return Err("offset out of range".into());
             }
             c.next();
         }
-        if let Some(a) = c.peek().and_then(|s| s.atom()).and_then(|a| a.strip_prefix("align=")) {
+        if let Some(a) = c
+            .peek()
+            .and_then(|s| s.atom())
+            .and_then(|a| a.strip_prefix("align="))
+        {
             align = parse_int(a, 32).map_err(|_| "unexpected token")?;
             if align == 0 || !align.is_power_of_two() {
                 return Err("alignment".into());
@@ -1567,12 +1754,18 @@ impl FuncBody {
                 }
             }
             "call" | "return_call" => {
-                let f = e.funcs.resolve(c.next().ok_or("unexpected token")?, "function")?;
+                let f = e
+                    .funcs
+                    .resolve(c.next().ok_or("unexpected token")?, "function")?;
                 self.code.push(0x10);
                 leb_u32(&mut self.code, f);
             }
             "call_indirect" => {
-                let table = if c.peek().is_some_and(is_index) { e.tables.resolve(c.next().unwrap(), "table")? } else { 0 };
+                let table = if c.peek().is_some_and(is_index) {
+                    e.tables.resolve(c.next().unwrap(), "table")?
+                } else {
+                    0
+                };
                 let (t, names) = e.typeuse(c)?;
                 if names.iter().any(|n| n.is_some()) {
                     return Err("unexpected token".into());
@@ -1602,7 +1795,9 @@ impl FuncBody {
                 }
             }
             "local.get" | "local.set" | "local.tee" => {
-                let i = self.locals.resolve(c.next().ok_or("unexpected token")?, "local")?;
+                let i = self
+                    .locals
+                    .resolve(c.next().ok_or("unexpected token")?, "local")?;
                 self.code.push(match op {
                     "local.get" => 0x20,
                     "local.set" => 0x21,
@@ -1611,22 +1806,31 @@ impl FuncBody {
                 leb_u32(&mut self.code, i);
             }
             "global.get" | "global.set" => {
-                let i = e.globals.resolve(c.next().ok_or("unexpected token")?, "global")?;
+                let i = e
+                    .globals
+                    .resolve(c.next().ok_or("unexpected token")?, "global")?;
                 self.code.push(if op == "global.get" { 0x23 } else { 0x24 });
                 leb_u32(&mut self.code, i);
             }
             "table.get" | "table.set" | "table.size" | "table.grow" | "table.fill" => {
-                let t = if c.peek().is_some_and(is_index) { e.tables.resolve(c.next().unwrap(), "table")? } else { 0 };
+                let t = if c.peek().is_some_and(is_index) {
+                    e.tables.resolve(c.next().unwrap(), "table")?
+                } else {
+                    0
+                };
                 match op {
                     "table.get" => self.code.push(0x25),
                     "table.set" => self.code.push(0x26),
                     _ => {
                         self.code.push(0xfc);
-                        leb_u32(&mut self.code, match op {
-                            "table.grow" => 15,
-                            "table.size" => 16,
-                            _ => 17,
-                        });
+                        leb_u32(
+                            &mut self.code,
+                            match op {
+                                "table.grow" => 15,
+                                "table.size" => 16,
+                                _ => 17,
+                            },
+                        );
                     }
                 }
                 leb_u32(&mut self.code, t);
@@ -1634,7 +1838,9 @@ impl FuncBody {
             "table.copy" => {
                 let (d, s) = if c.peek().is_some_and(is_index) {
                     let d = e.tables.resolve(c.next().unwrap(), "table")?;
-                    let s = e.tables.resolve(c.next().ok_or("unexpected token")?, "table")?;
+                    let s = e
+                        .tables
+                        .resolve(c.next().ok_or("unexpected token")?, "table")?;
                     (d, s)
                 } else {
                     (0, 0)
@@ -1647,7 +1853,10 @@ impl FuncBody {
             "table.init" => {
                 let a = c.next().ok_or("unexpected token")?;
                 let (t, el) = if c.peek().is_some_and(is_index) {
-                    (e.tables.resolve(a, "table")?, e.elems.resolve(c.next().unwrap(), "elem")?)
+                    (
+                        e.tables.resolve(a, "table")?,
+                        e.elems.resolve(c.next().unwrap(), "elem")?,
+                    )
                 } else {
                     (0, e.elems.resolve(a, "elem")?)
                 };
@@ -1657,13 +1866,17 @@ impl FuncBody {
                 leb_u32(&mut self.code, t);
             }
             "elem.drop" => {
-                let el = e.elems.resolve(c.next().ok_or("unexpected token")?, "elem")?;
+                let el = e
+                    .elems
+                    .resolve(c.next().ok_or("unexpected token")?, "elem")?;
                 self.code.push(0xfc);
                 leb_u32(&mut self.code, 13);
                 leb_u32(&mut self.code, el);
             }
             "memory.init" | "data.drop" => {
-                let d = e.datas.resolve(c.next().ok_or("unexpected token")?, "data")?;
+                let d = e
+                    .datas
+                    .resolve(c.next().ok_or("unexpected token")?, "data")?;
                 e.uses_data_count = true;
                 self.code.push(0xfc);
                 leb_u32(&mut self.code, if op == "memory.init" { 8 } else { 9 });
@@ -1673,7 +1886,8 @@ impl FuncBody {
                 }
             }
             "memory.size" | "memory.grow" => {
-                self.code.push(if op == "memory.size" { 0x3f } else { 0x40 });
+                self.code
+                    .push(if op == "memory.size" { 0x3f } else { 0x40 });
                 self.code.push(0);
             }
             "memory.copy" => {
@@ -1708,7 +1922,9 @@ impl FuncBody {
                 self.code.push(vt_byte(t));
             }
             "ref.func" => {
-                let f = e.funcs.resolve(c.next().ok_or("unexpected token")?, "function")?;
+                let f = e
+                    .funcs
+                    .resolve(c.next().ok_or("unexpected token")?, "function")?;
                 self.code.push(0xd2);
                 leb_u32(&mut self.code, f);
             }
@@ -1721,41 +1937,155 @@ impl FuncBody {
 
 /// An index immediate: a $name or a number (not the next instruction).
 fn is_index(s: &Sx) -> bool {
-    s.atom().is_some_and(|a| a.starts_with('$') || a.starts_with(|c: char| c.is_ascii_digit()))
+    s.atom()
+        .is_some_and(|a| a.starts_with('$') || a.starts_with(|c: char| c.is_ascii_digit()))
 }
 
 fn simple_op(op: &str) -> Option<(u8, u32)> {
     const OPS: &[(&str, u8)] = &[
-        ("unreachable", 0x00), ("nop", 0x01), ("return", 0x0f), ("drop", 0x1a),
-        ("i32.eqz", 0x45), ("i32.eq", 0x46), ("i32.ne", 0x47), ("i32.lt_s", 0x48), ("i32.lt_u", 0x49), ("i32.gt_s", 0x4a),
-        ("i32.gt_u", 0x4b), ("i32.le_s", 0x4c), ("i32.le_u", 0x4d), ("i32.ge_s", 0x4e), ("i32.ge_u", 0x4f),
-        ("i64.eqz", 0x50), ("i64.eq", 0x51), ("i64.ne", 0x52), ("i64.lt_s", 0x53), ("i64.lt_u", 0x54), ("i64.gt_s", 0x55),
-        ("i64.gt_u", 0x56), ("i64.le_s", 0x57), ("i64.le_u", 0x58), ("i64.ge_s", 0x59), ("i64.ge_u", 0x5a),
-        ("f32.eq", 0x5b), ("f32.ne", 0x5c), ("f32.lt", 0x5d), ("f32.gt", 0x5e), ("f32.le", 0x5f), ("f32.ge", 0x60),
-        ("f64.eq", 0x61), ("f64.ne", 0x62), ("f64.lt", 0x63), ("f64.gt", 0x64), ("f64.le", 0x65), ("f64.ge", 0x66),
-        ("i32.clz", 0x67), ("i32.ctz", 0x68), ("i32.popcnt", 0x69), ("i32.add", 0x6a), ("i32.sub", 0x6b), ("i32.mul", 0x6c),
-        ("i32.div_s", 0x6d), ("i32.div_u", 0x6e), ("i32.rem_s", 0x6f), ("i32.rem_u", 0x70), ("i32.and", 0x71), ("i32.or", 0x72),
-        ("i32.xor", 0x73), ("i32.shl", 0x74), ("i32.shr_s", 0x75), ("i32.shr_u", 0x76), ("i32.rotl", 0x77), ("i32.rotr", 0x78),
-        ("i64.clz", 0x79), ("i64.ctz", 0x7a), ("i64.popcnt", 0x7b), ("i64.add", 0x7c), ("i64.sub", 0x7d), ("i64.mul", 0x7e),
-        ("i64.div_s", 0x7f), ("i64.div_u", 0x80), ("i64.rem_s", 0x81), ("i64.rem_u", 0x82), ("i64.and", 0x83), ("i64.or", 0x84),
-        ("i64.xor", 0x85), ("i64.shl", 0x86), ("i64.shr_s", 0x87), ("i64.shr_u", 0x88), ("i64.rotl", 0x89), ("i64.rotr", 0x8a),
-        ("f32.abs", 0x8b), ("f32.neg", 0x8c), ("f32.ceil", 0x8d), ("f32.floor", 0x8e), ("f32.trunc", 0x8f), ("f32.nearest", 0x90),
-        ("f32.sqrt", 0x91), ("f32.add", 0x92), ("f32.sub", 0x93), ("f32.mul", 0x94), ("f32.div", 0x95), ("f32.min", 0x96),
-        ("f32.max", 0x97), ("f32.copysign", 0x98), ("f64.abs", 0x99), ("f64.neg", 0x9a), ("f64.ceil", 0x9b), ("f64.floor", 0x9c),
-        ("f64.trunc", 0x9d), ("f64.nearest", 0x9e), ("f64.sqrt", 0x9f), ("f64.add", 0xa0), ("f64.sub", 0xa1), ("f64.mul", 0xa2),
-        ("f64.div", 0xa3), ("f64.min", 0xa4), ("f64.max", 0xa5), ("f64.copysign", 0xa6), ("i32.wrap_i64", 0xa7),
-        ("i32.trunc_f32_s", 0xa8), ("i32.trunc_f32_u", 0xa9), ("i32.trunc_f64_s", 0xaa), ("i32.trunc_f64_u", 0xab),
-        ("i64.extend_i32_s", 0xac), ("i64.extend_i32_u", 0xad), ("i64.trunc_f32_s", 0xae), ("i64.trunc_f32_u", 0xaf),
-        ("i64.trunc_f64_s", 0xb0), ("i64.trunc_f64_u", 0xb1), ("f32.convert_i32_s", 0xb2), ("f32.convert_i32_u", 0xb3),
-        ("f32.convert_i64_s", 0xb4), ("f32.convert_i64_u", 0xb5), ("f32.demote_f64", 0xb6), ("f64.convert_i32_s", 0xb7),
-        ("f64.convert_i32_u", 0xb8), ("f64.convert_i64_s", 0xb9), ("f64.convert_i64_u", 0xba), ("f64.promote_f32", 0xbb),
-        ("i32.reinterpret_f32", 0xbc), ("i64.reinterpret_f64", 0xbd), ("f32.reinterpret_i32", 0xbe), ("f64.reinterpret_i64", 0xbf),
-        ("i32.extend8_s", 0xc0), ("i32.extend16_s", 0xc1), ("i64.extend8_s", 0xc2), ("i64.extend16_s", 0xc3), ("i64.extend32_s", 0xc4),
+        ("unreachable", 0x00),
+        ("nop", 0x01),
+        ("return", 0x0f),
+        ("drop", 0x1a),
+        ("i32.eqz", 0x45),
+        ("i32.eq", 0x46),
+        ("i32.ne", 0x47),
+        ("i32.lt_s", 0x48),
+        ("i32.lt_u", 0x49),
+        ("i32.gt_s", 0x4a),
+        ("i32.gt_u", 0x4b),
+        ("i32.le_s", 0x4c),
+        ("i32.le_u", 0x4d),
+        ("i32.ge_s", 0x4e),
+        ("i32.ge_u", 0x4f),
+        ("i64.eqz", 0x50),
+        ("i64.eq", 0x51),
+        ("i64.ne", 0x52),
+        ("i64.lt_s", 0x53),
+        ("i64.lt_u", 0x54),
+        ("i64.gt_s", 0x55),
+        ("i64.gt_u", 0x56),
+        ("i64.le_s", 0x57),
+        ("i64.le_u", 0x58),
+        ("i64.ge_s", 0x59),
+        ("i64.ge_u", 0x5a),
+        ("f32.eq", 0x5b),
+        ("f32.ne", 0x5c),
+        ("f32.lt", 0x5d),
+        ("f32.gt", 0x5e),
+        ("f32.le", 0x5f),
+        ("f32.ge", 0x60),
+        ("f64.eq", 0x61),
+        ("f64.ne", 0x62),
+        ("f64.lt", 0x63),
+        ("f64.gt", 0x64),
+        ("f64.le", 0x65),
+        ("f64.ge", 0x66),
+        ("i32.clz", 0x67),
+        ("i32.ctz", 0x68),
+        ("i32.popcnt", 0x69),
+        ("i32.add", 0x6a),
+        ("i32.sub", 0x6b),
+        ("i32.mul", 0x6c),
+        ("i32.div_s", 0x6d),
+        ("i32.div_u", 0x6e),
+        ("i32.rem_s", 0x6f),
+        ("i32.rem_u", 0x70),
+        ("i32.and", 0x71),
+        ("i32.or", 0x72),
+        ("i32.xor", 0x73),
+        ("i32.shl", 0x74),
+        ("i32.shr_s", 0x75),
+        ("i32.shr_u", 0x76),
+        ("i32.rotl", 0x77),
+        ("i32.rotr", 0x78),
+        ("i64.clz", 0x79),
+        ("i64.ctz", 0x7a),
+        ("i64.popcnt", 0x7b),
+        ("i64.add", 0x7c),
+        ("i64.sub", 0x7d),
+        ("i64.mul", 0x7e),
+        ("i64.div_s", 0x7f),
+        ("i64.div_u", 0x80),
+        ("i64.rem_s", 0x81),
+        ("i64.rem_u", 0x82),
+        ("i64.and", 0x83),
+        ("i64.or", 0x84),
+        ("i64.xor", 0x85),
+        ("i64.shl", 0x86),
+        ("i64.shr_s", 0x87),
+        ("i64.shr_u", 0x88),
+        ("i64.rotl", 0x89),
+        ("i64.rotr", 0x8a),
+        ("f32.abs", 0x8b),
+        ("f32.neg", 0x8c),
+        ("f32.ceil", 0x8d),
+        ("f32.floor", 0x8e),
+        ("f32.trunc", 0x8f),
+        ("f32.nearest", 0x90),
+        ("f32.sqrt", 0x91),
+        ("f32.add", 0x92),
+        ("f32.sub", 0x93),
+        ("f32.mul", 0x94),
+        ("f32.div", 0x95),
+        ("f32.min", 0x96),
+        ("f32.max", 0x97),
+        ("f32.copysign", 0x98),
+        ("f64.abs", 0x99),
+        ("f64.neg", 0x9a),
+        ("f64.ceil", 0x9b),
+        ("f64.floor", 0x9c),
+        ("f64.trunc", 0x9d),
+        ("f64.nearest", 0x9e),
+        ("f64.sqrt", 0x9f),
+        ("f64.add", 0xa0),
+        ("f64.sub", 0xa1),
+        ("f64.mul", 0xa2),
+        ("f64.div", 0xa3),
+        ("f64.min", 0xa4),
+        ("f64.max", 0xa5),
+        ("f64.copysign", 0xa6),
+        ("i32.wrap_i64", 0xa7),
+        ("i32.trunc_f32_s", 0xa8),
+        ("i32.trunc_f32_u", 0xa9),
+        ("i32.trunc_f64_s", 0xaa),
+        ("i32.trunc_f64_u", 0xab),
+        ("i64.extend_i32_s", 0xac),
+        ("i64.extend_i32_u", 0xad),
+        ("i64.trunc_f32_s", 0xae),
+        ("i64.trunc_f32_u", 0xaf),
+        ("i64.trunc_f64_s", 0xb0),
+        ("i64.trunc_f64_u", 0xb1),
+        ("f32.convert_i32_s", 0xb2),
+        ("f32.convert_i32_u", 0xb3),
+        ("f32.convert_i64_s", 0xb4),
+        ("f32.convert_i64_u", 0xb5),
+        ("f32.demote_f64", 0xb6),
+        ("f64.convert_i32_s", 0xb7),
+        ("f64.convert_i32_u", 0xb8),
+        ("f64.convert_i64_s", 0xb9),
+        ("f64.convert_i64_u", 0xba),
+        ("f64.promote_f32", 0xbb),
+        ("i32.reinterpret_f32", 0xbc),
+        ("i64.reinterpret_f64", 0xbd),
+        ("f32.reinterpret_i32", 0xbe),
+        ("f64.reinterpret_i64", 0xbf),
+        ("i32.extend8_s", 0xc0),
+        ("i32.extend16_s", 0xc1),
+        ("i64.extend8_s", 0xc2),
+        ("i64.extend16_s", 0xc3),
+        ("i64.extend32_s", 0xc4),
         ("ref.is_null", 0xd1),
     ];
     const SAT: &[&str] = &[
-        "i32.trunc_sat_f32_s", "i32.trunc_sat_f32_u", "i32.trunc_sat_f64_s", "i32.trunc_sat_f64_u",
-        "i64.trunc_sat_f32_s", "i64.trunc_sat_f32_u", "i64.trunc_sat_f64_s", "i64.trunc_sat_f64_u",
+        "i32.trunc_sat_f32_s",
+        "i32.trunc_sat_f32_u",
+        "i32.trunc_sat_f64_s",
+        "i32.trunc_sat_f64_u",
+        "i64.trunc_sat_f32_s",
+        "i64.trunc_sat_f32_u",
+        "i64.trunc_sat_f64_s",
+        "i64.trunc_sat_f64_u",
     ];
     if let Some(i) = SAT.iter().position(|s| *s == op) {
         return Some((0xfc, i as u32));
@@ -1815,8 +2145,14 @@ mod tests {
         assert!(parse_f32("0x1p128").is_err());
         assert_eq!(parse_f32("-0x0p0").unwrap(), 0x8000_0000);
         assert_eq!(parse_f32("nan:0x200000").unwrap(), 0x7fa0_0000);
-        assert_eq!(parse_f64("0x1.000000000000080000000001p0").unwrap(), 0x3ff0_0000_0000_0001); // round up (sticky)
-        assert_eq!(parse_f64("0x1.0000000000000800p0").unwrap(), 0x3ff0_0000_0000_0000); // tie to even
+        assert_eq!(
+            parse_f64("0x1.000000000000080000000001p0").unwrap(),
+            0x3ff0_0000_0000_0001
+        ); // round up (sticky)
+        assert_eq!(
+            parse_f64("0x1.0000000000000800p0").unwrap(),
+            0x3ff0_0000_0000_0000
+        ); // tie to even
         assert_eq!(parse_f32("1e10").unwrap(), 1e10f32.to_bits());
         assert_eq!(parse_f64("1_000.5").unwrap(), 1000.5f64.to_bits());
         assert_eq!(parse_int("-0x8000_0000", 32).unwrap(), 0x8000_0000);

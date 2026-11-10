@@ -4,3 +4,9 @@ data/
 bench/build/
 examples/*.wasm
 examples/rust-hello/target/
+.venv/
+__pycache__/
+web/node_modules/
+web/dist/
+server/wasp-server
+server/wasp-server.exe

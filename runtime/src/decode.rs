@@ -133,10 +133,16 @@ fn ref_type(b: u8) -> DResult<ValType> {
 
 fn limits(r: &mut Reader) -> DResult<Limits> {
     match r.byte()? {
-        0 => Ok(Limits { min: r.u32()?, max: None }),
+        0 => Ok(Limits {
+            min: r.u32()?,
+            max: None,
+        }),
         1 => {
             let min = r.u32()?;
-            Ok(Limits { min, max: Some(r.u32()?) })
+            Ok(Limits {
+                min,
+                max: Some(r.u32()?),
+            })
         }
         _ => Err("integer too large".into()),
     }
@@ -144,7 +150,10 @@ fn limits(r: &mut Reader) -> DResult<Limits> {
 
 fn table_type(r: &mut Reader) -> DResult<TableType> {
     let elem = ref_type(r.byte()?)?;
-    Ok(TableType { elem, limits: limits(r)? })
+    Ok(TableType {
+        elem,
+        limits: limits(r)?,
+    })
 }
 
 fn global_type(r: &mut Reader) -> DResult<GlobalType> {
@@ -215,7 +224,9 @@ pub fn decode(bytes: &[u8]) -> DResult<Module> {
     while !r.eof() {
         let id = r.byte()?;
         let size = r.u32()? as usize;
-        let body = r.bytes(size).map_err(|_| "unexpected end of section or function".to_string())?;
+        let body = r
+            .bytes(size)
+            .map_err(|_| "unexpected end of section or function".to_string())?;
         if id != 0 {
             // Section order: 1..=9, 12 (data count), 10, 11.
             let rank = |i: u8| match i {
@@ -287,7 +298,10 @@ pub fn decode(bytes: &[u8]) -> DResult<Module> {
             6 => {
                 for _ in 0..s.u32()? {
                     let ty = global_type(&mut s)?;
-                    m.globals.push(Global { ty, init: const_expr(&mut s)? });
+                    m.globals.push(Global {
+                        ty,
+                        init: const_expr(&mut s)?,
+                    });
                 }
             }
             7 => {
@@ -300,7 +314,11 @@ pub fn decode(bytes: &[u8]) -> DResult<Module> {
                         3 => ExternKind::Global,
                         _ => return Err("malformed export kind".into()),
                     };
-                    m.exports.push(Export { name, kind, index: s.u32()? });
+                    m.exports.push(Export {
+                        name,
+                        kind,
+                        index: s.u32()?,
+                    });
                 }
             }
             8 => m.start = Some(s.u32()?),
@@ -346,16 +364,25 @@ pub fn decode(bytes: &[u8]) -> DResult<Module> {
                 }
                 for _ in 0..n {
                     let mode = match s.u32()? {
-                        0 => DataMode::Active { memory: 0, offset: const_expr(&mut s)? },
+                        0 => DataMode::Active {
+                            memory: 0,
+                            offset: const_expr(&mut s)?,
+                        },
                         1 => DataMode::Passive,
                         2 => {
                             let memory = s.u32()?;
-                            DataMode::Active { memory, offset: const_expr(&mut s)? }
+                            DataMode::Active {
+                                memory,
+                                offset: const_expr(&mut s)?,
+                            }
                         }
                         _ => return Err("malformed data segment kind".into()),
                     };
                     let len = s.u32()? as usize;
-                    m.datas.push(Data { bytes: s.bytes(len)?.to_vec(), mode });
+                    m.datas.push(Data {
+                        bytes: s.bytes(len)?.to_vec(),
+                        mode,
+                    });
                 }
             }
             _ => return Err("malformed section id".into()),

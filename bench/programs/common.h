@@ -4,10 +4,13 @@
 #define REPORT(name, checksum, t0) \
     xprintf("%s checksum=%llu ns=%llu\n", name, (unsigned long long)(checksum), (unsigned long long)(now_ns() - (t0)))
 
-/* Checksum of a double array: the sum, scaled and truncated. Identical across builds because
-   every build computes with IEEE doubles and no contraction into fused multiply-adds. */
+/* Checksum of a double array: the bit pattern of its sum. Identical across builds because every
+   build computes with IEEE doubles and no contraction into fused multiply-adds. (Converting the
+   sum to an integer instead would be undefined behaviour when it is out of range.) */
 static uint64_t dsum(const double *x, int n) {
     double s = 0;
     for (int i = 0; i < n; i++) s += x[i];
-    return (uint64_t)(int64_t)(s * 1000.0);
+    uint64_t bits;
+    memcpy(&bits, &s, sizeof bits);
+    return bits;
 }

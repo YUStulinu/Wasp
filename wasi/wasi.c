@@ -93,6 +93,14 @@ wasi_ctx *wasi_new(int argc, const char **argv, int envc, const char **env) {
     c->fds[0].kind = 1;
     c->fds[1].kind = 2;
     c->fds[2].kind = 3;
+#ifdef _WIN32
+    /* The guest's bytes must reach the host unchanged: no "
+" -> "
+" translation. */
+    _setmode(_fileno(stdin), 0x8000);
+    _setmode(_fileno(stdout), 0x8000);
+    _setmode(_fileno(stderr), 0x8000);
+#endif
     return c;
 }
 

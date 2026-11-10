@@ -1,0 +1,194 @@
+{
+ "atax": {
+  "wasm_bytes": 3807,
+  "native": 0.0488722,
+  "jit_startup": {
+   "decode_ms": 0.186,
+   "validate_ms": 0.144,
+   "compile_ms": 0.224,
+   "instantiate_ms": 0.322,
+   "code_bytes": 19300
+  },
+  "jit": 0.299249899,
+  "interp_startup": {
+   "decode_ms": 0.142,
+   "validate_ms": 0.11,
+   "compile_ms": 0.0,
+   "instantiate_ms": 0.074,
+   "code_bytes": 0
+  },
+  "interp": 3.2054842,
+  "checksum": 4906073993449044690,
+  "jit_vs_native": 6.12,
+  "interp_vs_native": 65.59,
+  "interp_vs_jit": 10.71
+ },
+ "floyd": {
+  "wasm_bytes": 3192,
+  "native": 0.035102801,
+  "jit_startup": {
+   "decode_ms": 0.3,
+   "validate_ms": 0.107,
+   "compile_ms": 0.159,
+   "instantiate_ms": 0.245,
+   "code_bytes": 15269
+  },
+  "jit": 0.309385201,
+  "interp_startup": {
+   "decode_ms": 0.225,
+   "validate_ms": 0.144,
+   "compile_ms": 0.0,
+   "instantiate_ms": 0.074,
+   "code_bytes": 0
+  },
+  "interp": 4.779759499,
+  "checksum": 4688202,
+  "jit_vs_native": 8.81,
+  "interp_vs_native": 136.16,
+  "interp_vs_jit": 15.45
+ },
+ "gemm": {
+  "wasm_bytes": 3569,
+  "native": 0.010391901,
+  "jit_startup": {
+   "decode_ms": 0.359,
+   "validate_ms": 0.204,
+   "compile_ms": 0.237,
+   "instantiate_ms": 0.396,
+   "code_bytes": 17555
+  },
+  "jit": 0.1479349,
+  "interp_startup": {
+   "decode_ms": 0.483,
+   "validate_ms": 0.122,
+   "compile_ms": 0.0,
+   "instantiate_ms": 0.085,
+   "code_bytes": 0
+  },
+  "interp": 1.5099991,
+  "checksum": 4711515478068035506,
+  "jit_vs_native": 14.24,
+  "interp_vs_native": 145.31,
+  "interp_vs_jit": 10.21
+ },
+ "jacobi2d": {
+  "wasm_bytes": 3381,
+  "native": 0.0320109,
+  "jit_startup": {
+   "decode_ms": 0.171,
+   "validate_ms": 0.107,
+   "compile_ms": 0.126,
+   "instantiate_ms": 0.207,
+   "code_bytes": 16337
+  },
+  "jit": 0.546576,
+  "interp_startup": {
+   "decode_ms": 0.171,
+   "validate_ms": 0.103,
+   "compile_ms": 0.0,
+   "instantiate_ms": 0.075,
+   "code_bytes": 0
+  },
+  "interp": 5.659026899,
+  "checksum": 4722541237605524718,
+  "jit_vs_native": 17.07,
+  "interp_vs_native": 176.78,
+  "interp_vs_jit": 10.35
+ },
+ "mixmark": {
+  "wasm_bytes": 5071,
+  "native": 0.0775057,
+  "jit_startup": {
+   "decode_ms": 0.344,
+   "validate_ms": 0.18,
+   "compile_ms": 0.174,
+   "instantiate_ms": 0.268,
+   "code_bytes": 23384
+  },
+  "jit": 0.4441693,
+  "interp_startup": {
+   "decode_ms": 0.203,
+   "validate_ms": 0.171,
+   "compile_ms": 0.0,
+   "instantiate_ms": 0.076,
+   "code_bytes": 0
+  },
+  "interp": 5.5050061,
+  "checksum": 19147,
+  "jit_vs_native": 5.73,
+  "interp_vs_native": 71.03,
+  "interp_vs_jit": 12.39
+ },
+ "mm2": {
+  "wasm_bytes": 3698,
+  "native": 0.019700401,
+  "jit_startup": {
+   "decode_ms": 0.144,
+   "validate_ms": 0.107,
+   "compile_ms": 0.16,
+   "instantiate_ms": 0.24,
+   "code_bytes": 18432
+  },
+  "jit": 0.097218,
+  "interp_startup": {
+   "decode_ms": 0.191,
+   "validate_ms": 0.114,
+   "compile_ms": 0.0,
+   "instantiate_ms": 0.074,
+   "code_bytes": 0
+  },
+  "interp": 1.0859531,
+  "checksum": 4735900574516999050,
+  "jit_vs_native": 4.93,
+  "interp_vs_native": 55.12,
+  "interp_vs_jit": 11.17
+ },
+ "nbody": {
+  "wasm_bytes": 3845,
+  "native": 0.220246,
+  "jit_startup": {
+   "decode_ms": 0.171,
+   "validate_ms": 0.105,
+   "compile_ms": 0.153,
+   "instantiate_ms": 0.234,
+   "code_bytes": 17904
+  },
+  "jit": 1.6339504,
+  "interp_startup": {
+   "decode_ms": 0.383,
+   "validate_ms": 0.178,
+   "compile_ms": 0.0,
+   "instantiate_ms": 0.093,
+   "code_bytes": 0
+  },
+  "interp": 15.335889,
+  "checksum": 4648097665806036574,
+  "jit_vs_native": 7.42,
+  "interp_vs_native": 69.63,
+  "interp_vs_jit": 9.39
+ },
+ "seidel2d": {
+  "wasm_bytes": 3142,
+  "native": 0.058610699,
+  "jit_startup": {
+   "decode_ms": 0.15,
+   "validate_ms": 0.096,
+   "compile_ms": 0.138,
+   "instantiate_ms": 0.216,
+   "code_bytes": 15068
+  },
+  "jit": 0.1572852,
+  "interp_startup": {
+   "decode_ms": 0.166,
+   "validate_ms": 0.1,
+   "compile_ms": 0.0,
+   "instantiate_ms": 0.073,
+   "code_bytes": 0
+  },
+  "interp": 1.1648346,
+  "checksum": 4719187540433698859,
+  "jit_vs_native": 2.68,
+  "interp_vs_native": 19.87,
+  "interp_vs_jit": 7.41
+ }
+}

@@ -1,0 +1,6 @@
+{
+  "rust-analyzer.linkedProjects": ["runtime/Cargo.toml"],
+  "go.toolsEnvVars": { "GOFLAGS": "" },
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "files.associations": { "*.wast": "lisp", "*.wat": "lisp" }
+}

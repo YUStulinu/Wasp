@@ -1,0 +1,222 @@
+[
+ {
+  "module": "oob_load.wat",
+  "mode": "jit",
+  "description": "load from an address far outside linear memory",
+  "contained": true,
+  "outcome": "trap: out of bounds memory access",
+  "exit": 134,
+  "seconds": 0.018,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "oob_load.wat",
+  "mode": "interp",
+  "description": "load from an address far outside linear memory",
+  "contained": true,
+  "outcome": "trap: out of bounds memory access",
+  "exit": 134,
+  "seconds": 0.016,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "oob_store.wat",
+  "mode": "jit",
+  "description": "store one byte past the end of memory",
+  "contained": true,
+  "outcome": "trap: out of bounds memory access",
+  "exit": 134,
+  "seconds": 0.016,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "oob_store.wat",
+  "mode": "interp",
+  "description": "store one byte past the end of memory",
+  "contained": true,
+  "outcome": "trap: out of bounds memory access",
+  "exit": 134,
+  "seconds": 0.016,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "memory_bomb.wat",
+  "mode": "jit",
+  "description": "memory.grow in a loop, capped at 64 MiB",
+  "contained": true,
+  "outcome": "exit 0",
+  "exit": 0,
+  "seconds": 0.048,
+  "peak_rss_mb": 53.4
+ },
+ {
+  "module": "memory_bomb.wat",
+  "mode": "interp",
+  "description": "memory.grow in a loop, capped at 64 MiB",
+  "contained": true,
+  "outcome": "exit 0",
+  "exit": 0,
+  "seconds": 0.048,
+  "peak_rss_mb": 55.8
+ },
+ {
+  "module": "memory_initial.wat",
+  "mode": "jit",
+  "description": "module asking for 4 GiB at instantiation",
+  "contained": true,
+  "outcome": "error: instantiation failed: memory limit exceeded",
+  "exit": 1,
+  "seconds": 0.017,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "memory_initial.wat",
+  "mode": "interp",
+  "description": "module asking for 4 GiB at instantiation",
+  "contained": true,
+  "outcome": "error: instantiation failed: memory limit exceeded",
+  "exit": 1,
+  "seconds": 0.017,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "infinite_loop.wat",
+  "mode": "jit",
+  "description": "infinite loop with a 500 ms deadline",
+  "contained": true,
+  "outcome": "trap: interrupted",
+  "exit": 134,
+  "seconds": 0.516,
+  "peak_rss_mb": 4.3
+ },
+ {
+  "module": "infinite_loop.wat",
+  "mode": "interp",
+  "description": "infinite loop with a 500 ms deadline",
+  "contained": true,
+  "outcome": "trap: interrupted",
+  "exit": 134,
+  "seconds": 0.518,
+  "peak_rss_mb": 4.3
+ },
+ {
+  "module": "deep_recursion.wat",
+  "mode": "jit",
+  "description": "unbounded recursion",
+  "contained": true,
+  "outcome": "trap: call stack exhausted",
+  "exit": 134,
+  "seconds": 0.016,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "deep_recursion.wat",
+  "mode": "interp",
+  "description": "unbounded recursion",
+  "contained": true,
+  "outcome": "trap: call stack exhausted",
+  "exit": 134,
+  "seconds": 0.016,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "big_frames.wat",
+  "mode": "jit",
+  "description": "recursion with 20,000 locals per frame",
+  "contained": true,
+  "outcome": "trap: call stack exhausted",
+  "exit": 134,
+  "seconds": 0.027,
+  "peak_rss_mb": 16.1
+ },
+ {
+  "module": "big_frames.wat",
+  "mode": "interp",
+  "description": "recursion with 20,000 locals per frame",
+  "contained": true,
+  "outcome": "trap: call stack exhausted",
+  "exit": 134,
+  "seconds": 0.048,
+  "peak_rss_mb": 37.8
+ },
+ {
+  "module": "table_oob.wat",
+  "mode": "jit",
+  "description": "call_indirect past the end of the table",
+  "contained": true,
+  "outcome": "trap: undefined element",
+  "exit": 134,
+  "seconds": 0.017,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "table_oob.wat",
+  "mode": "interp",
+  "description": "call_indirect past the end of the table",
+  "contained": true,
+  "outcome": "trap: undefined element",
+  "exit": 134,
+  "seconds": 0.017,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "signature_mismatch.wat",
+  "mode": "jit",
+  "description": "call_indirect with the wrong signature",
+  "contained": true,
+  "outcome": "trap: indirect call type mismatch",
+  "exit": 134,
+  "seconds": 0.017,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "signature_mismatch.wat",
+  "mode": "interp",
+  "description": "call_indirect with the wrong signature",
+  "contained": true,
+  "outcome": "trap: indirect call type mismatch",
+  "exit": 134,
+  "seconds": 0.017,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "wasi_escape.wat",
+  "mode": "jit",
+  "description": "WASI path_open outside the preopened directory",
+  "contained": true,
+  "outcome": "exit 0",
+  "exit": 0,
+  "seconds": 0.017,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "wasi_escape.wat",
+  "mode": "interp",
+  "description": "WASI path_open outside the preopened directory",
+  "contained": true,
+  "outcome": "exit 0",
+  "exit": 0,
+  "seconds": 0.018,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "wasi_bad_pointer.wat",
+  "mode": "jit",
+  "description": "WASI calls with pointers outside linear memory (EFAULT x2)",
+  "contained": true,
+  "outcome": "exit 42",
+  "exit": 42,
+  "seconds": 0.017,
+  "peak_rss_mb": 1.9
+ },
+ {
+  "module": "wasi_bad_pointer.wat",
+  "mode": "interp",
+  "description": "WASI calls with pointers outside linear memory (EFAULT x2)",
+  "contained": true,
+  "outcome": "exit 42",
+  "exit": 42,
+  "seconds": 0.018,
+  "peak_rss_mb": 1.9
+ }
+]

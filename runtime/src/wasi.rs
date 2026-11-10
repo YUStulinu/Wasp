@@ -8,7 +8,12 @@ use crate::module::{FuncType, ValType};
 use crate::runtime::{Caller, Extern, Imports, Store, Trap, Val};
 
 unsafe extern "C" {
-    fn wasi_new(argc: i32, argv: *const *const c_char, envc: i32, env: *const *const c_char) -> *mut c_void;
+    fn wasi_new(
+        argc: i32,
+        argv: *const *const c_char,
+        envc: i32,
+        env: *const *const c_char,
+    ) -> *mut c_void;
     fn wasi_preopen(c: *mut c_void, host: *const c_char, guest: *const c_char) -> i32;
     fn wasi_free(c: *mut c_void);
     fn wasi_call(c: *mut c_void, id: i32, mem: *mut u8, mem_len: u64, args: *const u64) -> i32;
@@ -62,11 +67,19 @@ impl Drop for Wasi {
 
 impl Wasi {
     pub fn new(args: &[String], env: &[String]) -> Wasi {
-        let a: Vec<CString> = args.iter().map(|s| CString::new(s.as_str()).unwrap()).collect();
-        let e: Vec<CString> = env.iter().map(|s| CString::new(s.as_str()).unwrap()).collect();
+        let a: Vec<CString> = args
+            .iter()
+            .map(|s| CString::new(s.as_str()).unwrap())
+            .collect();
+        let e: Vec<CString> = env
+            .iter()
+            .map(|s| CString::new(s.as_str()).unwrap())
+            .collect();
         let ap: Vec<*const c_char> = a.iter().map(|s| s.as_ptr()).collect();
         let ep: Vec<*const c_char> = e.iter().map(|s| s.as_ptr()).collect();
-        Wasi { ctx: unsafe { wasi_new(ap.len() as i32, ap.as_ptr(), ep.len() as i32, ep.as_ptr()) } }
+        Wasi {
+            ctx: unsafe { wasi_new(ap.len() as i32, ap.as_ptr(), ep.len() as i32, ep.as_ptr()) },
+        }
     }
     /// Makes host directory `host` visible to the guest as `guest`.
     pub fn preopen(&self, host: &str, guest: &str) {
@@ -85,7 +98,6 @@ impl Wasi {
     pub fn exit_code(&self) -> i32 {
         unsafe { wasi_exit_code(self.ctx) }
     }
-
 }
 
 /// Registers the host functions; returns the import map for `wasi_snapshot_preview1`.
@@ -93,8 +105,15 @@ pub fn link(wasi: &Rc<RefCell<Wasi>>, store: &mut Store) -> Imports {
     {
         let mut imports = Imports::new();
         for (id, (name, params)) in FUNCS.iter().enumerate() {
-            let params: Vec<ValType> = params.chars().map(|c| if c == 'I' { ValType::I64 } else { ValType::I32 }).collect();
-            let results = if *name == "proc_exit" { vec![] } else { vec![ValType::I32] };
+            let params: Vec<ValType> = params
+                .chars()
+                .map(|c| if c == 'I' { ValType::I64 } else { ValType::I32 })
+                .collect();
+            let results = if *name == "proc_exit" {
+                vec![]
+            } else {
+                vec![ValType::I32]
+            };
             let w = wasi.clone();
             let f = store.add_host_func(
                 FuncType { params, results },
@@ -107,12 +126,17 @@ pub fn link(wasi: &Rc<RefCell<Wasi>>, store: &mut Store) -> Imports {
                     let ctx = w.borrow().ctx;
                     let r = unsafe { wasi_call(ctx, id as i32, ptr, len, raw.as_ptr()) };
                     if r == -1 {
-                        return Err(Trap(format!("{EXIT_PREFIX}{}", unsafe { wasi_exit_code(ctx) })));
+                        return Err(Trap(format!("{EXIT_PREFIX}{}", unsafe {
+                            wasi_exit_code(ctx)
+                        })));
                     }
                     Ok(vec![Val::I32(r)])
                 }),
             );
-            imports.insert(("wasi_snapshot_preview1".to_string(), name.to_string()), Extern::Func(f));
+            imports.insert(
+                ("wasi_snapshot_preview1".to_string(), name.to_string()),
+                Extern::Func(f),
+            );
         }
         imports
     }

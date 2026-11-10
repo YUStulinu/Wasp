@@ -7,9 +7,10 @@
 //!         --dir HOST[::GUEST] make a host directory visible to the program (default guest "/")
 //!         --env K=V           environment variable for the program
 //!         --invoke NAME       call an exported function instead of _start (i32/i64 args)
+//!         --argv0 NAME        program name passed as argv[0] (default: the module path)
 //!         --stats             print timings (decode, validate, compile, instantiate, run) as JSON
 //!     wasp wast [--jit] [-v] file.wast...                   run spec test scripts
-//!     wasp wat2wasm in.wat [-o out.wasm]
+//!     wasp wat2wasm in.wat [-o out.wasm]                  text to binary, validated
 
 use std::cell::RefCell;
 use std::process::ExitCode;
@@ -23,7 +24,10 @@ use wasp::wasi::{EXIT_PREFIX, Wasi};
 fn main() -> ExitCode {
     // Deep recursion in compiled code uses the native stack: run on a thread with a large one
     // (the call-depth limit, not the stack size, is what stops runaway recursion).
-    let t = std::thread::Builder::new().stack_size(1 << 30).spawn(real_main).unwrap();
+    let t = std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(real_main)
+        .unwrap();
     t.join().unwrap_or(ExitCode::from(101))
 }
 
@@ -34,8 +38,18 @@ fn real_main() -> ExitCode {
         Some("wast") => wast(&args[1..]),
         Some("wat2wasm") => {
             let src = std::fs::read_to_string(&args[1]).expect("read");
-            let out = args.iter().position(|a| a == "-o").map(|i| args[i + 1].clone()).unwrap_or_else(|| args[1].replace(".wat", ".wasm"));
-            match wasp::wat::wat2wasm(&src) {
+            let out = args
+                .iter()
+                .position(|a| a == "-o")
+                .map(|i| args[i + 1].clone())
+                .unwrap_or_else(|| args[1].replace(".wat", ".wasm"));
+            // Text -> binary, then decode and validate, so that errors show up here.
+            let checked = wasp::wat::wat2wasm(&src).and_then(|b| {
+                let m = wasp::decode::decode(&b).map_err(|e| format!("malformed: {e}"))?;
+                wasp::validate::validate_module(&m).map_err(|e| format!("invalid: {e}"))?;
+                Ok(b)
+            });
+            match checked {
                 Ok(b) => {
                     std::fs::write(out, b).expect("write");
                     ExitCode::SUCCESS
@@ -47,7 +61,9 @@ fn real_main() -> ExitCode {
             }
         }
         _ => {
-            eprintln!("usage: wasp run [options] module.wasm [args...] | wasp wast [--jit] [-v] file.wast... | wasp wat2wasm in.wat [-o out.wasm]");
+            eprintln!(
+                "usage: wasp run [options] module.wasm [args...] | wasp wast [--jit] [-v] file.wast... | wasp wat2wasm in.wat [-o out.wasm]"
+            );
             ExitCode::from(2)
         }
     }
@@ -66,7 +82,15 @@ fn wast(args: &[String]) -> ExitCode {
             }
         };
         let r = wasp::wast::run_wast(&src, jit);
-        println!("{:<40} {:>6} passed {:>5} failed", std::path::Path::new(path).file_name().unwrap().to_string_lossy(), r.passed, r.failed);
+        println!(
+            "{:<40} {:>6} passed {:>5} failed",
+            std::path::Path::new(path)
+                .file_name()
+                .unwrap()
+                .to_string_lossy(),
+            r.passed,
+            r.failed
+        );
         if verbose {
             for x in r.failures.iter().take(20) {
                 println!("    {x}");
@@ -75,7 +99,10 @@ fn wast(args: &[String]) -> ExitCode {
         p += r.passed;
         f += r.failed;
     }
-    println!("total: {p} passed, {f} failed ({:.2}%)", 100.0 * p as f64 / (p + f).max(1) as f64);
+    println!(
+        "total: {p} passed, {f} failed ({:.2}%)",
+        100.0 * p as f64 / (p + f).max(1) as f64
+    );
     ExitCode::SUCCESS
 }
 
@@ -87,6 +114,7 @@ fn run(args: &[String]) -> ExitCode {
     let mut env: Vec<String> = Vec::new();
     let mut invoke: Option<String> = None;
     let mut stats = false;
+    let mut argv0: Option<String> = None;
     let mut i = 0;
     while i < args.len() && args[i].starts_with("--") {
         let a = args[i].as_str();
@@ -102,9 +130,13 @@ fn run(args: &[String]) -> ExitCode {
             "--timeout-ms" => timeout_ms = val().parse().ok(),
             "--env" => env.push(val()),
             "--invoke" => invoke = Some(val()),
+            "--argv0" => argv0 = Some(val()),
             "--dir" => {
                 let v = val();
-                let (h, g) = v.split_once("::").map(|(h, g)| (h.to_string(), g.to_string())).unwrap_or((v.clone(), "/".to_string()));
+                let (h, g) = v
+                    .split_once("::")
+                    .map(|(h, g)| (h.to_string(), g.to_string()))
+                    .unwrap_or((v.clone(), "/".to_string()));
                 dirs.push((h, g));
             }
             _ => {
@@ -118,16 +150,21 @@ fn run(args: &[String]) -> ExitCode {
         eprintln!("missing module");
         return ExitCode::from(2);
     };
-    let prog_args: Vec<String> = args[i..].to_vec();
+    let mut prog_args: Vec<String> = args[i..].to_vec();
+    if let Some(a0) = argv0 {
+        prog_args[0] = a0; // what the program sees as its name (hides the host path)
+    }
     let t0 = Instant::now();
     let bytes = match std::fs::read(path) {
-        Ok(b) if path.ends_with(".wat") => match wasp::wat::wat2wasm(&String::from_utf8_lossy(&b)) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("error: {e}");
-                return ExitCode::from(1);
+        Ok(b) if path.ends_with(".wat") => {
+            match wasp::wat::wat2wasm(&String::from_utf8_lossy(&b)) {
+                Ok(w) => w,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::from(1);
+                }
             }
-        },
+        }
         Ok(b) => b,
         Err(e) => {
             eprintln!("error: {path}: {e}");
@@ -200,11 +237,19 @@ fn run(args: &[String]) -> ExitCode {
     let code = match &r {
         Ok(vals) => {
             if invoke.is_some() {
-                println!("{}", vals.iter().map(|v| format!("{v:?}")).collect::<Vec<_>>().join(" "));
+                println!(
+                    "{}",
+                    vals.iter()
+                        .map(|v| format!("{v:?}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
             }
             0
         }
-        Err(t) if t.0.starts_with(EXIT_PREFIX) => t.0[EXIT_PREFIX.len()..].parse::<i32>().unwrap_or(1),
+        Err(t) if t.0.starts_with(EXIT_PREFIX) => {
+            t.0[EXIT_PREFIX.len()..].parse::<i32>().unwrap_or(1)
+        }
         Err(t) => {
             eprintln!("trap: {}", t.0);
             134

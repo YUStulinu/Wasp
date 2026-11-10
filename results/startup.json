@@ -1,0 +1,72 @@
+{
+ "in_process": {
+  "hello (C)": {
+   "jit": {
+    "decode_ms": 0.186,
+    "validate_ms": 0.111,
+    "compile_ms": 0.108,
+    "instantiate_ms": 0.197,
+    "code_bytes": 11999,
+    "module_bytes": 2742
+   },
+   "interp": {
+    "decode_ms": 0.176,
+    "validate_ms": 0.107,
+    "compile_ms": 0.0,
+    "instantiate_ms": 0.088,
+    "code_bytes": 0,
+    "module_bytes": 2742
+   }
+  },
+  "mixmark (C)": {
+   "jit": {
+    "decode_ms": 0.169,
+    "validate_ms": 0.134,
+    "compile_ms": 0.194,
+    "instantiate_ms": 0.283,
+    "code_bytes": 23384,
+    "module_bytes": 5071
+   },
+   "interp": {
+    "decode_ms": 0.179,
+    "validate_ms": 0.138,
+    "compile_ms": 0.0,
+    "instantiate_ms": 0.084,
+    "code_bytes": 0,
+    "module_bytes": 5071
+   }
+  },
+  "hello (Go, wasip1)": {
+   "jit": {
+    "decode_ms": 7.209,
+    "validate_ms": 37.666,
+    "compile_ms": 50.091,
+    "instantiate_ms": 58.978,
+    "code_bytes": 11150043,
+    "module_bytes": 2621446
+   },
+   "interp": {
+    "decode_ms": 7.398,
+    "validate_ms": 37.967,
+    "compile_ms": 0.0,
+    "instantiate_ms": 8.825,
+    "code_bytes": 0,
+    "module_bytes": 2621446
+   }
+  }
+ },
+ "server_jit": {
+  "runs": 50,
+  "process_median_ms": 12.13,
+  "process_p95_ms": 13.91,
+  "http_median_ms": 14.39,
+  "http_p95_ms": 29.35
+ },
+ "server_interp": {
+  "runs": 50,
+  "process_median_ms": 11.78,
+  "process_p95_ms": 12.88,
+  "http_median_ms": 14.03,
+  "http_p95_ms": 32.73
+ }
+}

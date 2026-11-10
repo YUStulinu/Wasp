@@ -14,47 +14,153 @@ use crate::module::*;
 pub enum Op {
     Unreachable,
     /// Copy `n` slots from `src` to `dst`, then continue at `target`.
-    Br { target: u32, src: u32, dst: u32, n: u32 },
-    BrIf { cond: u32, target: u32, src: u32, dst: u32, n: u32 },
+    Br {
+        target: u32,
+        src: u32,
+        dst: u32,
+        n: u32,
+    },
+    BrIf {
+        cond: u32,
+        target: u32,
+        src: u32,
+        dst: u32,
+        n: u32,
+    },
     /// Targets as (pc, dst); the last one is the default.
-    BrTable { cond: u32, src: u32, n: u32, targets: Box<[(u32, u32)]> },
+    BrTable {
+        cond: u32,
+        src: u32,
+        n: u32,
+        targets: Box<[(u32, u32)]>,
+    },
     Jump(u32),
-    JumpIfZero { cond: u32, target: u32 },
-    Return { src: u32, n: u32 },
+    JumpIfZero {
+        cond: u32,
+        target: u32,
+    },
+    Return {
+        src: u32,
+        n: u32,
+    },
     /// Arguments are in slots base.. and results come back there.
-    Call { func: u32, base: u32 },
-    CallIndirect { table: u32, ty: u32, base: u32, index: u32 },
-    Select { a: u32 }, // a = if a+2 { a } else { a+1 }
-    LocalGet { dst: u32, local: u32 },
-    LocalSet { local: u32, src: u32 },
-    LocalTee { local: u32, src: u32 },
-    GlobalGet { dst: u32, global: u32 },
-    GlobalSet { global: u32, src: u32 },
+    Call {
+        func: u32,
+        base: u32,
+    },
+    CallIndirect {
+        table: u32,
+        ty: u32,
+        base: u32,
+        index: u32,
+    },
+    Select {
+        a: u32,
+    }, // a = if a+2 { a } else { a+1 }
+    LocalGet {
+        dst: u32,
+        local: u32,
+    },
+    LocalSet {
+        local: u32,
+        src: u32,
+    },
+    LocalTee {
+        local: u32,
+        src: u32,
+    },
+    GlobalGet {
+        dst: u32,
+        global: u32,
+    },
+    GlobalSet {
+        global: u32,
+        src: u32,
+    },
     /// Load opcode (0x28..=0x35); address in `a`, value replaces it.
-    Load { op: u8, a: u32, offset: u32 },
+    Load {
+        op: u8,
+        a: u32,
+        offset: u32,
+    },
     /// Store opcode (0x36..=0x3e); address in `a`, value in `a + 1`.
-    Store { op: u8, a: u32, offset: u32 },
-    MemorySize { dst: u32 },
-    MemoryGrow { a: u32 },
-    MemoryInit { data: u32, a: u32 },
-    DataDrop { data: u32 },
-    MemoryCopy { a: u32 },
-    MemoryFill { a: u32 },
-    Const { dst: u32, bits: u64 },
+    Store {
+        op: u8,
+        a: u32,
+        offset: u32,
+    },
+    MemorySize {
+        dst: u32,
+    },
+    MemoryGrow {
+        a: u32,
+    },
+    MemoryInit {
+        data: u32,
+        a: u32,
+    },
+    DataDrop {
+        data: u32,
+    },
+    MemoryCopy {
+        a: u32,
+    },
+    MemoryFill {
+        a: u32,
+    },
+    Const {
+        dst: u32,
+        bits: u64,
+    },
     /// Numeric instruction: wasm opcode (0x45..=0xc4, or 0xfc00 + n for saturating truncation);
     /// operands in a (and a + 1), result in a.
-    Num { op: u16, a: u32 },
-    RefNull { dst: u32 },
-    RefIsNull { a: u32 },
-    RefFunc { dst: u32, func: u32 },
-    TableGet { table: u32, a: u32 },
-    TableSet { table: u32, a: u32 },
-    TableSize { table: u32, dst: u32 },
-    TableGrow { table: u32, a: u32 },
-    TableFill { table: u32, a: u32 },
-    TableCopy { dst_table: u32, src_table: u32, a: u32 },
-    TableInit { table: u32, elem: u32, a: u32 },
-    ElemDrop { elem: u32 },
+    Num {
+        op: u16,
+        a: u32,
+    },
+    RefNull {
+        dst: u32,
+    },
+    RefIsNull {
+        a: u32,
+    },
+    RefFunc {
+        dst: u32,
+        func: u32,
+    },
+    TableGet {
+        table: u32,
+        a: u32,
+    },
+    TableSet {
+        table: u32,
+        a: u32,
+    },
+    TableSize {
+        table: u32,
+        dst: u32,
+    },
+    TableGrow {
+        table: u32,
+        a: u32,
+    },
+    TableFill {
+        table: u32,
+        a: u32,
+    },
+    TableCopy {
+        dst_table: u32,
+        src_table: u32,
+        a: u32,
+    },
+    TableInit {
+        table: u32,
+        elem: u32,
+        a: u32,
+    },
+    ElemDrop {
+        elem: u32,
+    },
     /// Loop header: lets long-running code be interrupted.
     LoopCheck,
 }
@@ -82,8 +188,8 @@ struct Frame {
     height: usize,
     unreachable: bool, // after br/return/unreachable: the operand stack is polymorphic
     dead: bool,        // the construct itself is in unreachable code: nothing is emitted
-    start_pc: u32,          // loop header
-    fixups: Vec<usize>,     // ops to patch with the end pc
+    start_pc: u32,     // loop header
+    fixups: Vec<usize>, // ops to patch with the end pc
     else_fixup: Option<usize>,
 }
 
@@ -132,12 +238,22 @@ impl<'a> Ctx<'a> {
                 scan(i);
             }
         }
-        Ctx { m, func_types: m.func_types(), tables: m.table_types(), memories: m.memory_types(), globals: m.global_types(), refs }
+        Ctx {
+            m,
+            func_types: m.func_types(),
+            tables: m.table_types(),
+            memories: m.memory_types(),
+            globals: m.global_types(),
+            refs,
+        }
     }
 
     fn func_type(&self, f: u32) -> DResult<&FuncType> {
         let t = *self.func_types.get(f as usize).ok_or("unknown function")?;
-        self.m.types.get(t as usize).ok_or_else(|| "unknown type".into())
+        self.m
+            .types
+            .get(t as usize)
+            .ok_or_else(|| "unknown type".into())
     }
 }
 
@@ -200,7 +316,11 @@ impl V {
         }
     }
     fn label_types(&self, f: &Frame) -> Vec<ValType> {
-        if f.kind == Kind::Loop { f.params.clone() } else { f.results.clone() }
+        if f.kind == Kind::Loop {
+            f.params.clone()
+        } else {
+            f.results.clone()
+        }
     }
     fn set_unreachable(&mut self) {
         let f = self.frames.last_mut().unwrap();
@@ -238,13 +358,19 @@ fn block_type(c: &Ctx, r: &mut Reader) -> DResult<FuncType> {
     }
     if let Ok(t) = val_type(b) {
         r.pos += 1;
-        return Ok(FuncType { params: vec![], results: vec![t] });
+        return Ok(FuncType {
+            params: vec![],
+            results: vec![t],
+        });
     }
     let idx = r.s33()?;
     if idx < 0 {
         return Err("malformed value type".into());
     }
-    c.m.types.get(idx as usize).cloned().ok_or_else(|| "unknown type".into())
+    c.m.types
+        .get(idx as usize)
+        .cloned()
+        .ok_or_else(|| "unknown type".into())
 }
 
 fn memarg(c: &Ctx, r: &mut Reader, natural: u32) -> DResult<u32> {
@@ -341,7 +467,13 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
     let mut locals = ft.params.clone();
     locals.extend(&code.locals);
     let nlocals = locals.len() as u32;
-    let mut v = V { vals: Vec::new(), frames: Vec::new(), ops: Vec::new(), nlocals, max: 0 };
+    let mut v = V {
+        vals: Vec::new(),
+        frames: Vec::new(),
+        ops: Vec::new(),
+        nlocals,
+        max: 0,
+    };
     v.frames.push(Frame {
         kind: Kind::Func,
         params: vec![],
@@ -354,7 +486,12 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
         else_fixup: None,
     });
     let mut r = Reader::new(&code.body);
-    let local = |i: u32| -> DResult<ValType> { locals.get(i as usize).copied().ok_or_else(|| "unknown local".into()) };
+    let local = |i: u32| -> DResult<ValType> {
+        locals
+            .get(i as usize)
+            .copied()
+            .ok_or_else(|| "unknown local".into())
+    };
     loop {
         if r.eof() {
             return Err("unexpected end".into());
@@ -443,7 +580,10 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                     // Branches to the function's own label land on this return.
                     if (!f.unreachable && !f.dead) || !f.fixups.is_empty() {
                         let ret_pc = v.ops.len() as u32;
-                        v.ops.push(Op::Return { src: nlocals, n: results.len() as u32 });
+                        v.ops.push(Op::Return {
+                            src: nlocals,
+                            n: results.len() as u32,
+                        });
                         apply_fixups(&mut v.ops, &f.fixups, ret_pc);
                     }
                     if !r.eof() {
@@ -477,9 +617,20 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                     v.branch_info(l)
                 };
                 let idx = if opcode == 0x0c {
-                    v.emit(Op::Br { target: 0, src, dst, n })
+                    v.emit(Op::Br {
+                        target: 0,
+                        src,
+                        dst,
+                        n,
+                    })
                 } else {
-                    v.emit(Op::BrIf { cond, target: 0, src, dst, n })
+                    v.emit(Op::BrIf {
+                        cond,
+                        target: 0,
+                        src,
+                        dst,
+                        n,
+                    })
                 };
                 let t = v.target_or_fixup(fi, idx);
                 if idx != usize::MAX {
@@ -527,7 +678,12 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                         fix.push((fi, k));
                     }
                 }
-                let idx = v.emit(Op::BrTable { cond, src, n, targets: targets.into_boxed_slice() });
+                let idx = v.emit(Op::BrTable {
+                    cond,
+                    src,
+                    n,
+                    targets: targets.into_boxed_slice(),
+                });
                 if idx != usize::MAX {
                     for (fi, k) in fix {
                         v.frames[fi].fixups.push(idx | (k + 1) << 32);
@@ -564,7 +720,12 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                 let index = v.top_slot_after_push();
                 v.pop_vals(&ft.params)?;
                 let base = v.top_slot_after_push();
-                v.emit(Op::CallIndirect { table, ty, base, index });
+                v.emit(Op::CallIndirect {
+                    table,
+                    ty,
+                    base,
+                    index,
+                });
                 v.push_vals(&ft.results);
             }
             0x1a => {
@@ -660,7 +821,11 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                 let offset = memarg(c, &mut r, natural)?;
                 v.pop_expect(ValType::I32)?;
                 let a = v.top_slot_after_push();
-                v.emit(Op::Load { op: opcode, a, offset });
+                v.emit(Op::Load {
+                    op: opcode,
+                    a,
+                    offset,
+                });
                 v.push(Some(t));
             }
             0x36..=0x3e => {
@@ -669,7 +834,11 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                 v.pop_expect(t)?;
                 v.pop_expect(ValType::I32)?;
                 let a = v.top_slot_after_push();
-                v.emit(Op::Store { op: opcode, a, offset });
+                v.emit(Op::Store {
+                    op: opcode,
+                    a,
+                    offset,
+                });
             }
             0x3f | 0x40 => {
                 if r.byte()? != 0 {
@@ -691,19 +860,28 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
             0x41 => {
                 let x = r.s32()?;
                 let dst = v.top_slot_after_push();
-                v.emit(Op::Const { dst, bits: x as u32 as u64 });
+                v.emit(Op::Const {
+                    dst,
+                    bits: x as u32 as u64,
+                });
                 v.push(Some(ValType::I32));
             }
             0x42 => {
                 let x = r.s64()?;
                 let dst = v.top_slot_after_push();
-                v.emit(Op::Const { dst, bits: x as u64 });
+                v.emit(Op::Const {
+                    dst,
+                    bits: x as u64,
+                });
                 v.push(Some(ValType::I64));
             }
             0x43 => {
                 let x = r.f32()?;
                 let dst = v.top_slot_after_push();
-                v.emit(Op::Const { dst, bits: x as u64 });
+                v.emit(Op::Const {
+                    dst,
+                    bits: x as u64,
+                });
                 v.push(Some(ValType::F32));
             }
             0x44 => {
@@ -782,7 +960,11 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                         }
                         v.pop_vals(&[ValType::I32, ValType::I32, ValType::I32])?;
                         let a = v.top_slot_after_push();
-                        v.emit(if sub == 10 { Op::MemoryCopy { a } } else { Op::MemoryFill { a } });
+                        v.emit(if sub == 10 {
+                            Op::MemoryCopy { a }
+                        } else {
+                            Op::MemoryFill { a }
+                        });
                     }
                     12 => {
                         let e = r.u32()?;
@@ -794,7 +976,11 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                         }
                         v.pop_vals(&[ValType::I32, ValType::I32, ValType::I32])?;
                         let a = v.top_slot_after_push();
-                        v.emit(Op::TableInit { table: t, elem: e, a });
+                        v.emit(Op::TableInit {
+                            table: t,
+                            elem: e,
+                            a,
+                        });
                     }
                     13 => {
                         let e = r.u32()?;
@@ -811,7 +997,11 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
                         }
                         v.pop_vals(&[ValType::I32, ValType::I32, ValType::I32])?;
                         let a = v.top_slot_after_push();
-                        v.emit(Op::TableCopy { dst_table: d, src_table: s, a });
+                        v.emit(Op::TableCopy {
+                            dst_table: d,
+                            src_table: s,
+                            a,
+                        });
                     }
                     15..=17 => {
                         let t = r.u32()?;
@@ -842,7 +1032,11 @@ pub fn validate_function(c: &Ctx, func_index: u32, code: &Code) -> DResult<Lower
         }
     }
     let max_slots = nlocals + v.max as u32;
-    Ok(Lowered { ops: v.ops, locals, max_slots })
+    Ok(Lowered {
+        ops: v.ops,
+        locals,
+        max_slots,
+    })
 }
 
 fn numeric(v: &mut V, op: u16) -> DResult<()> {
@@ -856,7 +1050,9 @@ fn numeric(v: &mut V, op: u16) -> DResult<()> {
 
 fn set_target(op: &mut Op, t: u32) {
     match op {
-        Op::Br { target, .. } | Op::BrIf { target, .. } | Op::JumpIfZero { target, .. } => *target = t,
+        Op::Br { target, .. } | Op::BrIf { target, .. } | Op::JumpIfZero { target, .. } => {
+            *target = t
+        }
         Op::Jump(target) => *target = t,
         _ => {}
     }
@@ -951,7 +1147,11 @@ pub fn validate_module(m: &Module) -> DResult<Vec<Lowered>> {
     if c.memories.len() > 1 {
         return Err("multiple memories".into());
     }
-    let imported_globals = m.imports.iter().filter(|i| matches!(i.desc, ImportDesc::Global(_))).count();
+    let imported_globals = m
+        .imports
+        .iter()
+        .filter(|i| matches!(i.desc, ImportDesc::Global(_)))
+        .count();
     for g in &m.globals {
         let t = const_expr_type(&c, &g.init, imported_globals)?;
         if t != g.ty.ty {
@@ -970,12 +1170,15 @@ pub fn validate_module(m: &Module) -> DResult<Vec<Lowered>> {
             ExternKind::Global => (e.index as usize) < c.globals.len(),
         };
         if !ok {
-            return Err(format!("unknown {}", match e.kind {
-                ExternKind::Func => "function",
-                ExternKind::Table => "table",
-                ExternKind::Memory => "memory",
-                ExternKind::Global => "global",
-            }));
+            return Err(format!(
+                "unknown {}",
+                match e.kind {
+                    ExternKind::Func => "function",
+                    ExternKind::Table => "table",
+                    ExternKind::Memory => "memory",
+                    ExternKind::Global => "global",
+                }
+            ));
         }
     }
     if let Some(s) = m.start {
@@ -1011,7 +1214,11 @@ pub fn validate_module(m: &Module) -> DResult<Vec<Lowered>> {
         }
     }
     let first = c.func_types.len() - m.funcs.len();
-    m.codes.iter().enumerate().map(|(i, code)| validate_function(&c, (first + i) as u32, code)).collect()
+    m.codes
+        .iter()
+        .enumerate()
+        .map(|(i, code)| validate_function(&c, (first + i) as u32, code))
+        .collect()
 }
 
 fn check_limits(l: Limits, max: u32, what: &str) -> DResult<()> {

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  runtime:
+    # The runtime and its tests, all 90 core spec files with both engines (must pass 100%),
+    # and the hostile-module isolation suite.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build and test
+        working-directory: runtime
+        run: |
+          cargo build --release
+          cargo test --release
+      - run: python tools/fetch_testsuite.py
+      - name: Spec tests, interpreter and JIT
+        shell: bash
+        run: |
+          for mode in "" --jit; do
+            out=$(runtime/target/release/wasp wast $mode data/testsuite/*.wast)
+            echo "$out" | awk '$4 != 0'
+            echo "$out" | tail -1 | grep -q " 0 failed (100.00%)"
+          done
+      - name: Isolation
+        run: |
+          pip install psutil==7.2.2
+          python security/run.py
+
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release
+        working-directory: runtime
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Vet and test
+        working-directory: server
+        run: |
+          go vet ./...
+          go test ./...
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      - run: npm test
+      - run: npm run build

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wasp playground</title>
+  </head>
+  <body>
+    <header>
+      <h1>Wasp</h1>
+      <p>Write C or WebAssembly text, compile it to Wasm on the server, and run it in an isolated Wasp process: JIT or interpreter, with a deadline and a memory cap.</p>
+    </header>
+    <main>
+      <div class="toolbar">
+        <label>Example <select id="example"></select></label>
+        <label>Language
+          <select id="language">
+            <option value="c">C</option>
+            <option value="wat">WebAssembly text</option>
+          </select>
+        </label>
+        <label>Engine
+          <select id="mode">
+            <option value="jit">JIT (x86-64)</option>
+            <option value="interp">Interpreter</option>
+          </select>
+        </label>
+        <label>Arguments <input id="args" placeholder="arg1 arg2" /></label>
+        <label>Deadline <input id="timeout" type="number" min="10" max="10000" value="2000" /> ms</label>
+        <label>Memory <input id="memory" type="number" min="1" max="256" value="64" /> MB</label>
+        <button id="run" type="button" title="Ctrl+Enter">Run</button>
+      </div>
+      <div class="panes">
+        <section class="editor">
+          <pre id="gutter" aria-hidden="true"></pre>
+          <textarea id="source" spellcheck="false" aria-label="Source code"></textarea>
+        </section>
+        <section class="output">
+          <p id="status" class="status">Choose an example or write a program, then press Run.</p>
+          <h2>Output</h2>
+          <pre id="stdout" class="stream"></pre>
+          <h2 id="stderr-title" hidden>Errors</h2>
+          <pre id="stderr" class="stream err" hidden></pre>
+          <h2>Timings</h2>
+          <table id="timings"></table>
+          <p id="sizes" class="muted"></p>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -132,30 +132,56 @@ pub struct Module {
 
 impl Module {
     pub fn imported_funcs(&self) -> impl Iterator<Item = u32> + '_ {
-        self.imports.iter().filter_map(|i| if let ImportDesc::Func(t) = i.desc { Some(t) } else { None })
+        self.imports.iter().filter_map(|i| {
+            if let ImportDesc::Func(t) = i.desc {
+                Some(t)
+            } else {
+                None
+            }
+        })
     }
     /// Type indices of all functions: imported first, then defined.
     pub fn func_types(&self) -> Vec<u32> {
-        self.imported_funcs().chain(self.funcs.iter().copied()).collect()
+        self.imported_funcs()
+            .chain(self.funcs.iter().copied())
+            .collect()
     }
     pub fn table_types(&self) -> Vec<TableType> {
         self.imports
             .iter()
-            .filter_map(|i| if let ImportDesc::Table(t) = i.desc { Some(t) } else { None })
+            .filter_map(|i| {
+                if let ImportDesc::Table(t) = i.desc {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
             .chain(self.tables.iter().copied())
             .collect()
     }
     pub fn memory_types(&self) -> Vec<Limits> {
         self.imports
             .iter()
-            .filter_map(|i| if let ImportDesc::Memory(m) = i.desc { Some(m) } else { None })
+            .filter_map(|i| {
+                if let ImportDesc::Memory(m) = i.desc {
+                    Some(m)
+                } else {
+                    None
+                }
+            })
             .chain(self.memories.iter().copied())
             .collect()
     }
     pub fn global_types(&self) -> Vec<GlobalType> {
         self.imports
             .iter()
-            .filter_map(|i| if let ImportDesc::Global(g) = i.desc { Some(g) } else { None })
+            .filter_map(|i| {
+                if let ImportDesc::Global(g) = i.desc {
+                    Some(g)
+                } else {
+                    None
+                }
+            })
             .chain(self.globals.iter().map(|g| g.ty))
             .collect()
     }
