@@ -8,3 +8,4 @@ pub mod jit;
 pub mod runtime;
 pub mod wat;
 pub mod wast;
+pub mod wasi;
